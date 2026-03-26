@@ -186,30 +186,61 @@
       return getBezierValue(t, 0, cy1, cy2, 1);
     };
 
-    const interpolateColor = (color1, color2, factor) => {
-      const rgb1 = hexToRgb(color1), rgb2 = hexToRgb(color2);
-      const r = Math.round(rgb1.r + factor * (rgb2.r - rgb1.r));
-      const g = Math.round(rgb1.g + factor * (rgb2.g - rgb1.g));
-      const b = Math.round(rgb1.b + factor * (rgb2.b - rgb1.b));
-      return rgbToHex(r, g, b);
-    };
-    const interpolateOklab = (hex1, hex2, factor) => {
+    // --- Independent Channel Interpolator ---
+    // Instead of blending raw RGB, we blend H, S, and L independently using their respective curve factors
+    const interpolateIndependent = (hex1, hex2, t_h, t_s, t_l, isUniform) => {
       const c1 = hexToRgb(hex1), c2 = hexToRgb(hex2);
-      const ok1 = rgbToOklab(c1.r, c1.g, c1.b);
-      const ok2 = rgbToOklab(c2.r, c2.g, c2.b);
-      const L = ok1.L + factor * (ok2.L - ok1.L);
-      const a = ok1.a + factor * (ok2.a - ok1.a);
-      const b = ok1.b + factor * (ok2.b - ok1.b);
-      const rgb = oklabToRgb(L, a, b);
-      return rgbToHex(rgb.r, rgb.g, rgb.b);
+      if (isUniform) {
+        const ok1 = rgbToOklch(c1.r, c1.g, c1.b);
+        const ok2 = rgbToOklch(c2.r, c2.g, c2.b);
+        
+        let h1 = ok1.h, h2 = ok2.h;
+        let deltaH = h2 - h1;
+        if (deltaH > 180) deltaH -= 360;
+        else if (deltaH < -180) deltaH += 360;
+        let h = (h1 + t_h * deltaH) % 360;
+        if (h < 0) h += 360;
+
+        let C = ok1.C + t_s * (ok2.C - ok1.C);
+        let L = ok1.L + t_l * (ok2.L - ok1.L);
+        return oklchToHex(L, C, h);
+      } else {
+        const hsl1 = rgbToHsl(c1.r, c1.g, c1.b);
+        const hsl2 = rgbToHsl(c2.r, c2.g, c2.b);
+
+        let h1 = hsl1.h, h2 = hsl2.h;
+        let deltaH = h2 - h1;
+        if (deltaH > 180) deltaH -= 360;
+        else if (deltaH < -180) deltaH += 360;
+        let h = (h1 + t_h * deltaH) % 360;
+        if (h < 0) h += 360;
+
+        let s = hsl1.s + t_s * (hsl2.s - hsl1.s);
+        let l = hsl1.l + t_l * (hsl2.l - hsl1.l);
+        return hslToHex(h, s, l);
+      }
     };
-    const getEasing = (cfg, idx) => {
-      return (cfg.easing && cfg.easing[idx]) ? cfg.easing[idx] : { x1: 0.33, y1: 0.33, x2: 0.67, y2: 0.67 };
+
+    const getEasing = (cfg, channel, idx) => {
+      if (cfg.easings && cfg.easings[channel] && cfg.easings[channel][idx]) {
+        return cfg.easings[channel][idx];
+      }
+      return { x1: 0.33, y1: 0.33, x2: 0.67, y2: 0.67 };
+    };
+
+    const generateDefaultEasings = (numInputs) => {
+      const len = Math.max(1, numInputs - 1);
+      return {
+        all: Array.from({length: len}, () => ({ x1: 0.33, y1: 0.33, x2: 0.67, y2: 0.67 })),
+        h: Array.from({length: len}, () => ({ x1: 0.33, y1: 0.33, x2: 0.67, y2: 0.67 })),
+        s: Array.from({length: len}, () => ({ x1: 0.33, y1: 0.33, x2: 0.67, y2: 0.67 })),
+        l: Array.from({length: len}, () => ({ x1: 0.33, y1: 0.33, x2: 0.67, y2: 0.67 }))
+      };
     };
 
     // --- Core Generation Engine ---
     const generatePaletteForConfig = (config, forceReset = false) => {
-      let newColors = [];
+      let newColors = []; 
       const count = config.numColors;
       const adj = config.globalAdjustments;
       const mode = config.mode;
@@ -217,12 +248,21 @@
       const N = config.inputs.length;
 
       if (N === 1) {
-        newColors.push(config.inputs[0]); // Base color First
-        const rgbBase = hexToRgb(config.inputs[0]);
-        const baseVal = perceptuallyUniform 
-          ? rgbToOklch(rgbBase.r, rgbBase.g, rgbBase.b) 
-          : rgbToHsl(rgbBase.r, rgbBase.g, rgbBase.b);
-        
+        const rgbRaw = hexToRgb(config.inputs[0]);
+        let baseRaw = perceptuallyUniform 
+          ? rgbToOklch(rgbRaw.r, rgbRaw.g, rgbRaw.b) 
+          : rgbToHsl(rgbRaw.r, rgbRaw.g, rgbRaw.b);
+          
+        const adjBaseH = (baseRaw.h + adj.h + 360) % 360;
+        let adjBaseS, adjBaseL;
+        if (perceptuallyUniform) {
+            adjBaseS = Math.max(0, Math.min(0.4, baseRaw.C + (adj.s / 100) * 0.4));
+            adjBaseL = Math.max(0, Math.min(1, baseRaw.L + (adj.l / 100)));
+        } else {
+            adjBaseS = Math.max(0, Math.min(100, baseRaw.s + adj.s));
+            adjBaseL = Math.max(0, Math.min(100, baseRaw.l + adj.l));
+        }
+
         const harmonyMap = {
           'complementary': [0, 180],
           'split-complementary': [0, 150, 210],
@@ -247,78 +287,85 @@
           }
         }
 
-        for (let i = 1; i < count; i++) {
-          let h = baseVal.h;
-          let s = perceptuallyUniform ? baseVal.C : baseVal.s;
-          let l = perceptuallyUniform ? baseVal.L : baseVal.l;
-          const step = (i - 1) / Math.max(1, count - 2); 
+        let baseIdx = Math.floor((count - 1) / 2);
+        if (harmonyMap[mode]) baseIdx = 0;
+
+        for (let i = 0; i < count; i++) {
+          let h = adjBaseH;
+          let s = adjBaseS;
+          let l = adjBaseL;
+          let isBase = false;
 
           if (harmonyMap[mode]) {
-             h = (baseVal.h + mappedAngles[i]) % 360;
+             h = (adjBaseH + mappedAngles[i]) % 360;
              const subStep = mappedSubSteps[i];
-             l = perceptuallyUniform ? (0.25 + subStep * 0.5) : (25 + subStep * 50);
+             isBase = (i === 0);
+             if (perceptuallyUniform) {
+                 l = Math.max(0, Math.min(1, adjBaseL + (subStep - 0.5) * 0.4));
+             } else {
+                 l = Math.max(0, Math.min(100, adjBaseL + (subStep - 0.5) * 40));
+             }
           } else {
+             const offset = i - baseIdx;
+             const step = baseIdx > 0 ? offset / baseIdx : 0; 
+             isBase = (i === baseIdx);
+
              switch (mode) {
                case 'monochromatic':
-                 l = perceptuallyUniform ? (0.2 + step * 0.6) : (15 + step * 70); 
+                 l = perceptuallyUniform 
+                   ? adjBaseL + offset * (0.6 / Math.max(1, count - 1))
+                   : adjBaseL + offset * (60 / Math.max(1, count - 1)); 
                  break;
                case 'analogous':
-                 h = (baseVal.h + 15 + (step * 60)) % 360; 
+                 h = (adjBaseH + offset * 15) % 360; 
                  break;
                case 'discordant':
                  const disc = config.discordance !== undefined ? config.discordance : 50;
                  const hueShift = 137.5 + (disc - 50) * 1.5; 
-                 h = (baseVal.h + (i * hueShift)) % 360;
-                 
+                 h = (adjBaseH + (offset * hueShift)) % 360;
                  if (perceptuallyUniform) {
-                    s = 0.2 + ((i%2) * 0.15) * (disc / 50);
-                    l = 0.4 + ((i%3) * 0.2) * (disc / 50);
+                    s = adjBaseS + ((offset%2===0?1:-1) * 0.1) * (disc / 50);
+                    l = adjBaseL + ((offset%3===0?1:-1) * 0.15) * (disc / 50);
                  } else {
-                    s = 50 + ((i%2) * 40) * (disc / 50);
-                    l = 30 + ((i%3) * 30) * (disc / 50);
+                    s = adjBaseS + ((offset%2===0?1:-1) * 30) * (disc / 50);
+                    l = adjBaseL + ((offset%3===0?1:-1) * 25) * (disc / 50);
                  }
-                 s = Math.min(perceptuallyUniform ? 0.4 : 100, Math.max(0, s));
-                 l = Math.min(perceptuallyUniform ? 1 : 100, Math.max(0, l));
                  break;
                case 'itten-light-dark':
-                 l = perceptuallyUniform ? (0.9 - step * 0.7) : (90 - step * 75);
-                 h = (baseVal.h + (step * 15)) % 360;
+                 l = perceptuallyUniform ? adjBaseL - step * 0.45 : adjBaseL - step * 45;
                  break;
                case 'itten-cold-warm':
-                 const targetH = (baseVal.h + 180) % 360;
-                 h = (targetH - 30 + (step * 60) + 360) % 360;
-                 s = perceptuallyUniform ? 0.2 : 80;
-                 l = perceptuallyUniform ? 0.6 : 60;
+                 h = (adjBaseH + step * 90 + 360) % 360;
                  break;
                case 'itten-saturation':
-                 h = (baseVal.h + (step * 360)) % 360;
-                 s = perceptuallyUniform ? 0.03 : 15;
-                 l = perceptuallyUniform ? 0.5 : 50;
+                 s = perceptuallyUniform ? adjBaseS - Math.abs(step) * 0.3 : adjBaseS - Math.abs(step) * 60;
                  break;
                default:
                  break;
              }
           }
 
-          h = (h + adj.h + 360) % 360;
-          
           if (perceptuallyUniform) {
-             s = Math.max(0, Math.min(0.4, s + (adj.s / 100) * 0.4));
-             l = Math.max(0, Math.min(1, l + (adj.l / 100)));
-             newColors.push(oklchToHex(l, s, h));
+             s = Math.max(0, Math.min(0.4, s));
+             l = Math.max(0, Math.min(1, l));
+             newColors.push({ hex: oklchToHex(l, s, h), isBase });
           } else {
-             s = Math.max(0, Math.min(100, s + adj.s));
-             l = Math.max(0, Math.min(100, l + adj.l));
-             newColors.push(hslToHex(h, s, l));
+             s = Math.max(0, Math.min(100, s));
+             l = Math.max(0, Math.min(100, l));
+             newColors.push({ hex: hslToHex(h, s, l), isBase });
           }
         }
       } else if (N >= 2) {
         for (let i = 0; i < count; i++) {
           let globalFactor = count > 1 ? i / (count - 1) : 0;
+          let isBase = false;
           
-          if (globalFactor === 1) {
-            newColors.push(config.inputs[N - 1]);
-            continue;
+          for (let j = 0; j < N; j++) {
+             let segBoundary = j / (N - 1);
+             if (Math.abs(globalFactor - segBoundary) < 0.001) {
+                 isBase = true;
+                 break;
+             }
           }
 
           let segIdx = Math.floor(globalFactor * (N - 1));
@@ -327,25 +374,54 @@
           let segmentSize = 1 / (N - 1);
           let localFactor = (globalFactor - segIdx * segmentSize) / segmentSize;
 
-          let e = getEasing(config, segIdx);
-          let eased = solveBezier(localFactor, e.x1, e.y1, e.x2, e.y2);
+          let e_all = getEasing(config, 'all', segIdx);
+          let eased_all = solveBezier(localFactor, e_all.x1, e_all.y1, e_all.x2, e_all.y2);
 
-          newColors.push(perceptuallyUniform 
-            ? interpolateOklab(config.inputs[segIdx], config.inputs[segIdx+1], eased) 
-            : interpolateColor(config.inputs[segIdx], config.inputs[segIdx+1], eased));
+          let e_h = getEasing(config, 'h', segIdx);
+          let eased_h = solveBezier(eased_all, e_h.x1, e_h.y1, e_h.x2, e_h.y2);
+          
+          let e_s = getEasing(config, 's', segIdx);
+          let eased_s = solveBezier(eased_all, e_s.x1, e_s.y1, e_s.x2, e_s.y2);
+          
+          let e_l = getEasing(config, 'l', segIdx);
+          let eased_l = solveBezier(eased_all, e_l.x1, e_l.y1, e_l.x2, e_l.y2);
+
+          let generatedHex = interpolateIndependent(
+            config.inputs[segIdx], config.inputs[segIdx+1], 
+            eased_h, eased_s, eased_l, perceptuallyUniform
+          );
+            
+          if (adj.h !== 0 || adj.s !== 0 || adj.l !== 0) {
+             if (perceptuallyUniform) {
+                const { L, C, h } = rgbToOklch(...Object.values(hexToRgb(generatedHex)));
+                const adjH = (h + adj.h + 360) % 360;
+                const adjS = Math.max(0, Math.min(0.4, C + (adj.s / 100) * 0.4));
+                const adjL = Math.max(0, Math.min(1, L + (adj.l / 100)));
+                generatedHex = oklchToHex(adjL, adjS, adjH);
+             } else {
+                const { h, s, l } = rgbToHsl(...Object.values(hexToRgb(generatedHex)));
+                const adjH = (h + adj.h + 360) % 360;
+                const adjS = Math.max(0, Math.min(100, s + adj.s));
+                const adjL = Math.max(0, Math.min(100, l + adj.l));
+                generatedHex = hslToHex(adjH, adjS, adjL);
+             }
+          }
+            
+          newColors.push({ hex: generatedHex, isBase });
         }
       }
 
       let newPalette = [];
       if (config.palette.length === count && !forceReset) {
-        newPalette = newColors.map((hex, i) => (
-          config.palette[i] ? { ...config.palette[i], hex: hex } : { id: `color-${Date.now()}-${i}`, hex, ratio: 100/count }
+        newPalette = newColors.map((colObj, i) => (
+          config.palette[i] ? { ...config.palette[i], hex: colObj.hex, isBase: colObj.isBase } : { id: `color-${Date.now()}-${i}`, hex: colObj.hex, isBase: colObj.isBase, ratio: 100/count }
         ));
       } else {
         const equalRatio = 100 / count;
-        newPalette = newColors.map((hex, i) => ({
+        newPalette = newColors.map((colObj, i) => ({
           id: `color-${Date.now()}-${i}`,
-          hex: hex,
+          hex: colObj.hex,
+          isBase: colObj.isBase,
           ratio: equalRatio
         }));
       }
@@ -363,16 +439,15 @@
     };
 
     function App() {
-      // --- Master App State ---
-      const [appTheme, setAppTheme] = useState('dark'); // 'dark', 'light'
+      const [appTheme, setAppTheme] = useState('dark');
       const [appMode, setAppMode] = useState('harmony'); 
       const [activeTab, setActiveTab] = useState(0);
       const [copied, setCopied] = useState(false);
       const [activeTune, setActiveTune] = useState({ cIdx: null, colorIdx: null }); 
+      const [activeCurveTab, setActiveCurveTab] = useState('all');
       
-      const [previewMode, setPreviewMode] = useState('theme'); // 'theme', 'custom'
-      const [previewGrey, setPreviewGrey] = useState(50); // 0-100 for custom gray
-      const [showGreySlider, setShowGreySlider] = useState(false);
+      const [previewMode, setPreviewMode] = useState('theme');
+      const [previewGrey, setPreviewGrey] = useState(50);
       
       const defaultConfig = {
         id: 'A',
@@ -383,7 +458,7 @@
         perceptuallyUniform: false,
         harmonyLock: true,
         discordance: 50, 
-        easing: [{ x1: 0.33, y1: 0.33, x2: 0.67, y2: 0.67 }, { x1: 0.33, y1: 0.33, x2: 0.67, y2: 0.67 }],
+        easings: generateDefaultEasings(1),
         paletteRatio: 100,
         palette: []
       };
@@ -395,7 +470,6 @@
       const wheelDragIndex = useRef(null);
       const bezierDragData = useRef(null);
 
-      // --- Core State Updaters ---
       const updateConfig = (cIdx, updates, forceReset = false) => {
         setConfigs(prev => {
           const newConfigs = [...prev];
@@ -410,6 +484,7 @@
         setAppMode(mode);
         setActiveTab(0);
         setActiveTune({ cIdx: null, colorIdx: null });
+        setActiveCurveTab('all');
 
         if (mode === 'harmony') {
           setConfigs(prev => [generatePaletteForConfig({
@@ -422,10 +497,8 @@
           setConfigs(prev => {
             const base = prev[activeTab];
             const newInputs = base.inputs.length >= 2 ? base.inputs : [base.inputs[0], '#10B981'];
-            const newEasing = base.easing && base.easing.length >= (newInputs.length - 1)
-              ? base.easing 
-              : Array.from({length: newInputs.length - 1}, () => ({ x1: 0.33, y1: 0.33, x2: 0.67, y2: 0.67 }));
-            return [generatePaletteForConfig({ ...base, inputs: newInputs, easing: newEasing, paletteRatio: 100, discordance: 50 }, true)];
+            const newEasings = base.easings || generateDefaultEasings(newInputs.length);
+            return [generatePaletteForConfig({ ...base, inputs: newInputs, easings: newEasings, paletteRatio: 100, discordance: 50 }, true)];
           });
         } else if (mode === 'multi') {
           setConfigs(prev => {
@@ -441,7 +514,7 @@
         updateConfig(activeTab, { 
           globalAdjustments: { h: 0, s: 0, l: 0 },
           discordance: 50,
-          easing: Array.from({length: configs[activeTab].inputs.length - 1 || 1}, () => ({ x1: 0.33, y1: 0.33, x2: 0.67, y2: 0.67 }))
+          easings: generateDefaultEasings(configs[activeTab].inputs.length)
         }, true);
         
         if (appMode === 'multi') {
@@ -479,7 +552,6 @@
         });
       };
 
-      // --- Interaction Logic ---
       const activeConfig = configs[activeTab] || configs[0];
 
       const handleAddPalette = () => {
@@ -491,7 +563,8 @@
             inputs: ['#10B981'],
             mode: 'analogous',
             paletteRatio: 0,
-            discordance: 50
+            discordance: 50,
+            easings: generateDefaultEasings(1)
           }, true);
           
           newConfigs.push(newConfig);
@@ -523,16 +596,28 @@
       const handleAddInput = () => {
         if (activeConfig.inputs.length < 5) {
           const newColor = activeConfig.inputs.length === 1 ? '#F59E0B' : '#10B981';
-          const newEasing = [...(activeConfig.easing || []), { x1: 0.33, y1: 0.33, x2: 0.67, y2: 0.67 }];
-          updateConfig(activeTab, { inputs: [...activeConfig.inputs, newColor], easing: newEasing });
+          const newEasings = activeConfig.easings ? { ...activeConfig.easings } : generateDefaultEasings(activeConfig.inputs.length);
+          
+          ['all', 'h', 's', 'l'].forEach(channel => {
+             newEasings[channel] = [...(newEasings[channel] || []), { x1: 0.33, y1: 0.33, x2: 0.67, y2: 0.67 }];
+          });
+
+          updateConfig(activeTab, { inputs: [...activeConfig.inputs, newColor], easings: newEasings });
         }
       };
 
       const handleRemoveInput = (index) => {
         const newInputs = activeConfig.inputs.filter((_, i) => i !== index);
         if (newInputs.length < 2 && appMode === 'blend') return; 
-        const newEasing = (activeConfig.easing || []).slice(0, newInputs.length - 1);
-        updateConfig(activeTab, { inputs: newInputs, easing: newEasing });
+        
+        const newEasings = activeConfig.easings ? { ...activeConfig.easings } : generateDefaultEasings(activeConfig.inputs.length);
+        ['all', 'h', 's', 'l'].forEach(channel => {
+           if (newEasings[channel] && newEasings[channel].length > 0) {
+              newEasings[channel] = newEasings[channel].slice(0, newInputs.length - 1);
+           }
+        });
+
+        updateConfig(activeTab, { inputs: newInputs, easings: newEasings });
       };
 
       const handleSwapInputs = () => {
@@ -614,10 +699,8 @@
         document.body.style.cursor = 'crosshair';
       };
 
-      // --- Wheel & Bezier Global Drag Handlers ---
       useEffect(() => {
         const onPointerMove = (e) => {
-          // Wheel Logic
           if (wheelDragIndex.current !== null && wheelRef.current) {
             const rect = wheelRef.current.getBoundingClientRect();
             const centerX = rect.left + rect.width / 2;
@@ -662,7 +745,6 @@
             });
           }
 
-          // Bezier Curve Logic
           if (bezierDragData.current && bezierSvgRef.current) {
             const rect = bezierSvgRef.current.getBoundingClientRect();
             const mouseX = e.clientX - rect.left;
@@ -671,7 +753,7 @@
             const svgX = (mouseX / rect.width) * 1000;
             const svgY = (mouseY / rect.height) * 200;
 
-            const { segIdx, handleIdx } = bezierDragData.current;
+            const { segIdx, handleIdx, tab } = bezierDragData.current;
             const cfg = configs[activeTab];
             const N = cfg.inputs.length;
             
@@ -694,21 +776,27 @@
             setConfigs(prev => {
               const newConfigs = [...prev];
               const activeCfg = { ...newConfigs[activeTab] };
-              const newEasing = (activeCfg.easing || []).map(e => ({...e}));
               
-              while (newEasing.length <= segIdx) {
-                newEasing.push({ x1: 0.33, y1: 0.33, x2: 0.67, y2: 0.67 });
+              if (!activeCfg.easings) {
+                activeCfg.easings = generateDefaultEasings(activeCfg.inputs.length);
+              }
+
+              const newEasings = { ...activeCfg.easings };
+              newEasings[tab] = (newEasings[tab] || []).map(e => ({...e}));
+              
+              while (newEasings[tab].length <= segIdx) {
+                newEasings[tab].push({ x1: 0.33, y1: 0.33, x2: 0.67, y2: 0.67 });
               }
               
               if (handleIdx === 1) {
-                newEasing[segIdx].x1 = newX;
-                newEasing[segIdx].y1 = newY;
+                newEasings[tab][segIdx].x1 = newX;
+                newEasings[tab][segIdx].y1 = newY;
               } else {
-                newEasing[segIdx].x2 = newX;
-                newEasing[segIdx].y2 = newY;
+                newEasings[tab][segIdx].x2 = newX;
+                newEasings[tab][segIdx].y2 = newY;
               }
               
-              activeCfg.easing = newEasing;
+              activeCfg.easings = newEasings;
               newConfigs[activeTab] = generatePaletteForConfig(activeCfg);
               return newConfigs;
             });
@@ -729,7 +817,6 @@
         };
       }, [activeTab, configs]);
 
-      // --- Export Logic ---
       const generateSvgString = () => {
         if (appMode === 'multi') {
           const totalWidth = 1200;
@@ -790,7 +877,6 @@
         }
       };
 
-      // --- Visual Component Renders ---
       const renderBezierEditor = () => {
         if (activeConfig.inputs.length < 2) return null;
         const N = activeConfig.inputs.length;
@@ -809,31 +895,36 @@
           const Dx = Kx_next - Kx_i;
           const Dy = Ky_next - Ky_i;
 
-          const e = getEasing(activeConfig, i);
+          const e = getEasing(activeConfig, activeCurveTab, i);
           const H1x = Kx_i + e.x1 * Dx;
           const H1y = Ky_i + e.y1 * Dy;
           const H2x = Kx_i + e.x2 * Dx;
           const H2y = Ky_i + e.y2 * Dy;
 
-          const strokeColor = appTheme === 'dark' ? '#52525b' : '#d4d4d8';
+          const guideColor = appTheme === 'dark' ? '#52525b' : '#d4d4d8';
+          
+          let strokeColor = '#3B82F6';
+          if (activeCurveTab === 'h') strokeColor = 'url(#grad-h)';
+          else if (activeCurveTab === 's') strokeColor = 'url(#grad-s)';
+          else if (activeCurveTab === 'l') strokeColor = 'url(#grad-l)';
 
           segments.push(
             <g key={`seg-${i}`}>
-              <path d={`M ${Kx_i} ${Ky_i} C ${H1x} ${H1y}, ${H2x} ${H2y}, ${Kx_next} ${Ky_next}`} fill="none" stroke="#3B82F6" strokeWidth="4" strokeLinecap="round" />
-              <line x1={Kx_i} y1={Ky_i} x2={H1x} y2={H1y} stroke={strokeColor} strokeWidth="2" strokeDasharray="4 4" />
-              <line x1={Kx_next} y1={Ky_next} x2={H2x} y2={H2y} stroke={strokeColor} strokeWidth="2" strokeDasharray="4 4" />
+              <path d={`M ${Kx_i} ${Ky_i} C ${H1x} ${H1y}, ${H2x} ${H2y}, ${Kx_next} ${Ky_next}`} fill="none" stroke={strokeColor} strokeWidth="4" strokeLinecap="round" />
+              <line x1={Kx_i} y1={Ky_i} x2={H1x} y2={H1y} stroke={guideColor} strokeWidth="2" strokeDasharray="4 4" />
+              <line x1={Kx_next} y1={Ky_next} x2={H2x} y2={H2y} stroke={guideColor} strokeWidth="2" strokeDasharray="4 4" />
             </g>
           );
 
           htmlOverlays.push(
             <div key={`h1-${i}`} className="absolute w-4 h-4 rounded-full bg-zinc-400 cursor-grab hover:bg-white transition-colors shadow-md border border-white dark:border-zinc-900 z-10"
                  style={{ left: `calc(${(H1x / 1000) * 100}% - 8px)`, top: `calc(${(H1y / 200) * 100}% - 8px)` }}
-                 onPointerDown={(evt) => { evt.stopPropagation(); bezierDragData.current = { segIdx: i, handleIdx: 1 }; document.body.style.cursor = 'grabbing'; }} />
+                 onPointerDown={(evt) => { evt.stopPropagation(); bezierDragData.current = { segIdx: i, handleIdx: 1, tab: activeCurveTab }; document.body.style.cursor = 'grabbing'; }} />
           );
           htmlOverlays.push(
             <div key={`h2-${i}`} className="absolute w-4 h-4 rounded-full bg-zinc-400 cursor-grab hover:bg-white transition-colors shadow-md border border-white dark:border-zinc-900 z-10"
                  style={{ left: `calc(${(H2x / 1000) * 100}% - 8px)`, top: `calc(${(H2y / 200) * 100}% - 8px)` }}
-                 onPointerDown={(evt) => { evt.stopPropagation(); bezierDragData.current = { segIdx: i, handleIdx: 2 }; document.body.style.cursor = 'grabbing'; }} />
+                 onPointerDown={(evt) => { evt.stopPropagation(); bezierDragData.current = { segIdx: i, handleIdx: 2, tab: activeCurveTab }; document.body.style.cursor = 'grabbing'; }} />
           );
 
           htmlOverlays.push(
@@ -863,13 +954,24 @@
               let segmentSize = 1 / (N - 1);
               let localFactor = (globalFactor - segIdx * segmentSize) / segmentSize;
               
-              let e = getEasing(activeConfig, segIdx);
-              let easedY = solveBezier(localFactor, e.x1, e.y1, e.x2, e.y2);
+              let e_active = getEasing(activeConfig, activeCurveTab, segIdx);
+              let e_all = getEasing(activeConfig, 'all', segIdx);
+              
+              // Find the visual position of the dot.
+              // X is driven by the true linear progression.
+              svgX = PADDING_X + globalFactor * WIDTH;
               
               const Ky_0 = (segIdx % 2 === 0) ? 150 : 50;
               const Ky_1 = ((segIdx + 1) % 2 === 0) ? 150 : 50;
               
-              svgX = PADDING_X + globalFactor * WIDTH;
+              // If we are on the 'all' tab, the dot is on the 'all' curve.
+              // If on h/s/l, the dot sits on the h/s/l curve, BUT its x-position along the segment is dictated by the 'all' curve mapping.
+              let evalFactor = localFactor;
+              if (activeCurveTab !== 'all') {
+                  evalFactor = solveBezier(localFactor, e_all.x1, e_all.y1, e_all.x2, e_all.y2);
+              }
+              
+              let easedY = solveBezier(evalFactor, e_active.x1, e_active.y1, e_active.x2, e_active.y2);
               svgY = Ky_0 + easedY * (Ky_1 - Ky_0);
            }
            
@@ -883,9 +985,48 @@
 
         return (
           <div className="pt-4 border-t border-zinc-200 dark:border-zinc-800/50 space-y-3">
-            <label className="text-xs text-zinc-500 dark:text-zinc-400">Distribution Curve (Drag handles to ease)</label>
+            <div className="flex items-center justify-between">
+               <label className="text-xs text-zinc-500 dark:text-zinc-400">Distribution Splines</label>
+            </div>
+            
+            {/* TABS */}
+            <div className="flex bg-zinc-100 dark:bg-zinc-900/80 p-1 rounded-lg border border-zinc-200 dark:border-zinc-800 shadow-inner">
+               {[
+                 { id: 'all', label: 'Spacing' },
+                 { id: 'h', label: 'Hue' },
+                 { id: 's', label: 'Sat' },
+                 { id: 'l', label: 'Lum' }
+               ].map(tab => (
+                 <button
+                   key={tab.id}
+                   onClick={() => setActiveCurveTab(tab.id)}
+                   className={`flex-1 py-1.5 text-[10px] font-bold uppercase tracking-widest rounded transition-all ${activeCurveTab === tab.id ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow' : 'text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300'}`}
+                 >
+                   {tab.label}
+                 </button>
+               ))}
+            </div>
+
             <div ref={bezierSvgRef} className="w-full h-40 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg relative shadow-sm dark:shadow-inner overflow-visible">
                <svg viewBox="0 0 1000 200" preserveAspectRatio="none" className="absolute inset-0 w-full h-full pointer-events-none">
+                 <defs>
+                   <linearGradient id="grad-h" x1="0%" y1="0%" x2="100%" y2="0%">
+                     <stop offset="0%" stopColor="#ef4444" />
+                     <stop offset="20%" stopColor="#eab308" />
+                     <stop offset="40%" stopColor="#22c55e" />
+                     <stop offset="60%" stopColor="#06b6d4" />
+                     <stop offset="80%" stopColor="#3b82f6" />
+                     <stop offset="100%" stopColor="#d946ef" />
+                   </linearGradient>
+                   <linearGradient id="grad-s" x1="0%" y1="0%" x2="100%" y2="0%">
+                     <stop offset="0%" stopColor="#fb7185" />
+                     <stop offset="100%" stopColor="#a1a1aa" />
+                   </linearGradient>
+                   <linearGradient id="grad-l" x1="0%" y1="0%" x2="100%" y2="0%">
+                     <stop offset="0%" stopColor="#ffffff" />
+                     <stop offset="100%" stopColor="#3f3f46" />
+                   </linearGradient>
+                 </defs>
                  {segments}
                </svg>
                {htmlOverlays}
@@ -919,13 +1060,12 @@
               
               const x = 96 + radius * Math.cos(angle); 
               const y = 96 + radius * Math.sin(angle);
-              const isBase = i === 0 && activeConfig.inputs.length === 1;
               
               return (
                 <div 
                   key={color.id}
                   onPointerDown={onWheelPointerDown(i)}
-                  className={`absolute w-4 h-4 -ml-2 -mt-2 rounded-full border-2 border-white shadow-lg z-10 cursor-crosshair hover:scale-125 transition-transform ${isBase ? 'ring-2 ring-blue-500' : ''}`}
+                  className={`absolute w-4 h-4 -ml-2 -mt-2 rounded-full border-2 border-white shadow-lg z-10 cursor-crosshair hover:scale-125 transition-transform ${color.isBase ? 'ring-2 ring-blue-500 scale-110' : ''}`}
                   style={{ left: `${x}px`, top: `${y}px`, backgroundColor: color.hex }}
                   title={`Drag to tune ${color.hex}`}
                 />
@@ -1047,6 +1187,8 @@
          if (previewMode === 'custom') return `hsl(0, 0%, ${previewGrey}%)`;
          return appTheme === 'dark' ? '#101013' : '#ffffff';
       };
+
+      const markerColor = isPreviewLight ? 'text-zinc-600' : 'text-zinc-300';
 
       return (
         <div className={`${appTheme} w-full h-full`}>
@@ -1238,52 +1380,50 @@
                 </div>
 
                 {/* Global Adjustments Section */}
-                {activeConfig.inputs.length === 1 && (
-                  <div className="space-y-6 pt-6 border-t border-zinc-200 dark:border-zinc-800/50">
-                    <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">
-                      Global Adjustments <span className="text-[10px] lowercase normal-case">(Excl. Primary)</span>
-                    </h2>
-                    
-                    <div className="space-y-3">
-                      <label className="text-xs text-zinc-500 dark:text-zinc-400 flex justify-between">
-                        <span>Hue Shift</span>
-                        <span className="text-zinc-800 dark:text-zinc-200">{activeConfig.globalAdjustments.h}°</span>
-                      </label>
-                      <input 
-                        type="range" min="-180" max="180" 
-                        value={activeConfig.globalAdjustments.h}
-                        onChange={(e) => updateConfig(activeTab, { globalAdjustments: { ...activeConfig.globalAdjustments, h: parseInt(e.target.value) } })}
-                        className="w-full accent-blue-500 h-1 bg-zinc-200 dark:bg-zinc-800 rounded-lg appearance-none cursor-pointer"
-                      />
-                    </div>
-
-                    <div className="space-y-3">
-                      <label className="text-xs text-zinc-500 dark:text-zinc-400 flex justify-between">
-                        <span>Saturation</span>
-                        <span className="text-zinc-800 dark:text-zinc-200">{activeConfig.globalAdjustments.s > 0 ? '+' : ''}{activeConfig.globalAdjustments.s}%</span>
-                      </label>
-                      <input 
-                        type="range" min="-100" max="100" 
-                        value={activeConfig.globalAdjustments.s}
-                        onChange={(e) => updateConfig(activeTab, { globalAdjustments: { ...activeConfig.globalAdjustments, s: parseInt(e.target.value) } })}
-                        className="w-full accent-blue-500 h-1 bg-zinc-200 dark:bg-zinc-800 rounded-lg appearance-none cursor-pointer"
-                      />
-                    </div>
-
-                    <div className="space-y-3">
-                      <label className="text-xs text-zinc-500 dark:text-zinc-400 flex justify-between">
-                        <span>Brightness</span>
-                        <span className="text-zinc-800 dark:text-zinc-200">{activeConfig.globalAdjustments.l > 0 ? '+' : ''}{activeConfig.globalAdjustments.l}%</span>
-                      </label>
-                      <input 
-                        type="range" min="-100" max="100" 
-                        value={activeConfig.globalAdjustments.l}
-                        onChange={(e) => updateConfig(activeTab, { globalAdjustments: { ...activeConfig.globalAdjustments, l: parseInt(e.target.value) } })}
-                        className="w-full accent-blue-500 h-1 bg-zinc-200 dark:bg-zinc-800 rounded-lg appearance-none cursor-pointer"
-                      />
-                    </div>
+                <div className="space-y-6 pt-6 border-t border-zinc-200 dark:border-zinc-800/50">
+                  <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">
+                    Global Adjustments
+                  </h2>
+                  
+                  <div className="space-y-3">
+                    <label className="text-xs text-zinc-500 dark:text-zinc-400 flex justify-between">
+                      <span>Hue Shift</span>
+                      <span className="text-zinc-800 dark:text-zinc-200">{activeConfig.globalAdjustments.h}°</span>
+                    </label>
+                    <input 
+                      type="range" min="-180" max="180" 
+                      value={activeConfig.globalAdjustments.h}
+                      onChange={(e) => updateConfig(activeTab, { globalAdjustments: { ...activeConfig.globalAdjustments, h: parseInt(e.target.value) } })}
+                      className="w-full accent-blue-500 h-1 bg-zinc-200 dark:bg-zinc-800 rounded-lg appearance-none cursor-pointer"
+                    />
                   </div>
-                )}
+
+                  <div className="space-y-3">
+                    <label className="text-xs text-zinc-500 dark:text-zinc-400 flex justify-between">
+                      <span>Saturation</span>
+                      <span className="text-zinc-800 dark:text-zinc-200">{activeConfig.globalAdjustments.s > 0 ? '+' : ''}{activeConfig.globalAdjustments.s}%</span>
+                    </label>
+                    <input 
+                      type="range" min="-100" max="100" 
+                      value={activeConfig.globalAdjustments.s}
+                      onChange={(e) => updateConfig(activeTab, { globalAdjustments: { ...activeConfig.globalAdjustments, s: parseInt(e.target.value) } })}
+                      className="w-full accent-blue-500 h-1 bg-zinc-200 dark:bg-zinc-800 rounded-lg appearance-none cursor-pointer"
+                    />
+                  </div>
+
+                  <div className="space-y-3">
+                    <label className="text-xs text-zinc-500 dark:text-zinc-400 flex justify-between">
+                      <span>Brightness</span>
+                      <span className="text-zinc-800 dark:text-zinc-200">{activeConfig.globalAdjustments.l > 0 ? '+' : ''}{activeConfig.globalAdjustments.l}%</span>
+                    </label>
+                    <input 
+                      type="range" min="-100" max="100" 
+                      value={activeConfig.globalAdjustments.l}
+                      onChange={(e) => updateConfig(activeTab, { globalAdjustments: { ...activeConfig.globalAdjustments, l: parseInt(e.target.value) } })}
+                      className="w-full accent-blue-500 h-1 bg-zinc-200 dark:bg-zinc-800 rounded-lg appearance-none cursor-pointer"
+                    />
+                  </div>
+                </div>
 
                 {/* Visualizer */}
                 <div className="pt-6 border-t border-zinc-200 dark:border-zinc-800/50">
@@ -1412,12 +1552,19 @@
                         <div className={`flex-1 flex w-full relative group rounded-md overflow-hidden shadow-2xl border ${isPreviewLight ? 'border-black/10' : 'border-white/5'}`}>
                           {config.palette.map((color, colorIdx) => {
                             if (!color) return null;
+                            const isFirst = colorIdx === 0;
+                            const isLast = colorIdx === config.palette.length - 1;
                             return (
                               <div 
                                 key={color.id}
-                                className="relative h-full flex flex-col items-center justify-end pb-8 transition-all duration-75 group/block"
+                                className={`relative h-full flex flex-col items-center justify-end pb-8 transition-all duration-75 group/block ${isFirst ? 'rounded-l-[5px]' : ''} ${isLast ? 'rounded-r-[5px]' : ''}`}
                                 style={{ width: `${color.ratio || 0}%`, backgroundColor: color.hex }}
                               >
+                                {color.isBase && (
+                                    <svg className={`absolute -top-[15px] left-1/2 -translate-x-1/2 w-[15px] h-[15px] drop-shadow-sm z-30 transition-colors ${markerColor}`} viewBox="0 0 24 24" fill="currentColor">
+                                        <polygon points="12,22 2,2 22,2" />
+                                    </svg>
+                                )}
                                 <div 
                                   onClick={() => setActiveTune({ cIdx, colorIdx })}
                                   className={`absolute inset-0 z-10 cursor-pointer transition-colors ${activeTune.cIdx === cIdx && activeTune.colorIdx === colorIdx ? 'bg-white/20 ring-2 ring-inset ring-white' : ''}`}
