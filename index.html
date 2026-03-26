@@ -1,0 +1,836 @@
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { 
+  Copy, Download, Plus, Minus, 
+  Wand2, Settings2, Check, RefreshCw
+} from 'lucide-react';
+
+// --- Color Math & Utilities ---
+const hexToRgb = (hex) => {
+  let result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return result ? {
+    r: parseInt(result[1], 16),
+    g: parseInt(result[2], 16),
+    b: parseInt(result[3], 16)
+  } : { r: 0, g: 0, b: 0 };
+};
+
+const rgbToHex = (r, g, b) => {
+  return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).toUpperCase();
+};
+
+const rgbToHsl = (r, g, b) => {
+  r /= 255; g /= 255; b /= 255;
+  let max = Math.max(r, g, b), min = Math.min(r, g, b);
+  let h, s, l = (max + min) / 2;
+
+  if (max === min) {
+    h = s = 0; 
+  } else {
+    let d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+      case g: h = (b - r) / d + 2; break;
+      case b: h = (r - g) / d + 4; break;
+    }
+    h /= 6;
+  }
+  return { h: h * 360, s: s * 100, l: l * 100 };
+};
+
+const hslToRgb = (h, s, l) => {
+  h /= 360; s /= 100; l /= 100;
+  let r, g, b;
+
+  if (s === 0) {
+    r = g = b = l; 
+  } else {
+    const hue2rgb = (p, q, t) => {
+      if (t < 0) t += 1;
+      if (t > 1) t -= 1;
+      if (t < 1 / 6) return p + (q - p) * 6 * t;
+      if (t < 1 / 2) return q;
+      if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+      return p;
+    };
+    let q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    let p = 2 * l - q;
+    r = hue2rgb(p, q, h + 1 / 3);
+    g = hue2rgb(p, q, h);
+    b = hue2rgb(p, q, h - 1 / 3);
+  }
+  return { r: Math.round(r * 255), g: Math.round(g * 255), b: Math.round(b * 255) };
+};
+
+const hslToHex = (h, s, l) => {
+  const { r, g, b } = hslToRgb(h, s, l);
+  return rgbToHex(r, g, b);
+};
+
+// --- Oklab Perceptual Color Math ---
+const srgbToLinear = (x) => {
+  x /= 255;
+  return x >= 0.04045 ? Math.pow((x + 0.055) / 1.055, 2.4) : x / 12.92;
+};
+
+const linearToSrgb = (x) => {
+  x = x >= 0.0031308 ? 1.055 * Math.pow(x, 1 / 2.4) - 0.055 : 12.92 * x;
+  return Math.max(0, Math.min(255, Math.round(x * 255)));
+};
+
+const rgbToOklab = (r, g, b) => {
+  const lr = srgbToLinear(r), lg = srgbToLinear(g), lb = srgbToLinear(b);
+  const l = 0.4122214708 * lr + 0.5363325363 * lg + 0.0514459929 * lb;
+  const m = 0.2119034982 * lr + 0.6806995451 * lg + 0.1073969566 * lb;
+  const s = 0.0883024619 * lr + 0.2817188376 * lg + 0.6299787005 * lb;
+  const l_ = Math.cbrt(l), m_ = Math.cbrt(m), s_ = Math.cbrt(s);
+  return {
+    L: 0.2104542553*l_ + 0.7936177850*m_ - 0.0040720468*s_,
+    a: 1.9779984951*l_ - 2.4285922050*m_ + 0.4505937099*s_,
+    b: 0.0259040371*l_ + 0.7827717662*m_ - 0.8086757660*s_
+  };
+};
+
+const oklabToRgb = (L, a, b) => {
+  const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+  const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+  const s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+  const l = l_*l_*l_, m = m_*m_*m_, s = s_*s_*s_;
+  const lr =  4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
+  const lg = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
+  const lb = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s;
+  return { r: linearToSrgb(lr), g: linearToSrgb(lg), b: linearToSrgb(lb) };
+};
+
+const rgbToOklch = (r, g, b) => {
+  const { L, a, b: bVal } = rgbToOklab(r, g, b);
+  const C = Math.sqrt(a * a + bVal * bVal);
+  let h = Math.atan2(bVal, a) * (180 / Math.PI);
+  if (h < 0) h += 360;
+  return { L, C, h };
+};
+
+const oklchToHex = (L, C, h) => {
+  const hRad = h * (Math.PI / 180);
+  const a = C * Math.cos(hRad);
+  const b = C * Math.sin(hRad);
+  const rgb = oklabToRgb(L, a, b);
+  return rgbToHex(rgb.r, rgb.g, rgb.b);
+};
+
+// Linear RGB Interpolation (Standard)
+const interpolateColor = (color1, color2, factor) => {
+  const rgb1 = hexToRgb(color1);
+  const rgb2 = hexToRgb(color2);
+  const r = Math.round(rgb1.r + factor * (rgb2.r - rgb1.r));
+  const g = Math.round(rgb1.g + factor * (rgb2.g - rgb1.g));
+  const b = Math.round(rgb1.b + factor * (rgb2.b - rgb1.b));
+  return rgbToHex(r, g, b);
+};
+
+// Oklab Interpolation (Perceptually Uniform)
+const interpolateOklab = (hex1, hex2, factor) => {
+  const c1 = hexToRgb(hex1), c2 = hexToRgb(hex2);
+  const ok1 = rgbToOklab(c1.r, c1.g, c1.b);
+  const ok2 = rgbToOklab(c2.r, c2.g, c2.b);
+  const L = ok1.L + factor * (ok2.L - ok1.L);
+  const a = ok1.a + factor * (ok2.a - ok1.a);
+  const b = ok1.b + factor * (ok2.b - ok1.b);
+  const rgb = oklabToRgb(L, a, b);
+  return rgbToHex(rgb.r, rgb.g, rgb.b);
+};
+
+export default function App() {
+  // --- State ---
+  const [inputs, setInputs] = useState(['#3B82F6']); 
+  const [numColors, setNumColors] = useState(5);
+  const [mode, setMode] = useState('analogous');
+  const [palette, setPalette] = useState([]); 
+  const [copied, setCopied] = useState(false);
+  const [activeTuneIndex, setActiveTuneIndex] = useState(null);
+  
+  const [globalAdjustments, setGlobalAdjustments] = useState({ h: 0, s: 0, l: 0 });
+  const [harmonyLock, setHarmonyLock] = useState(true);
+  const [perceptuallyUniform, setPerceptuallyUniform] = useState(true);
+
+  const containerRef = useRef(null);
+  const wheelRef = useRef(null);
+  const wheelDragIndex = useRef(null);
+
+  // --- Generation Logic ---
+  const generatePalette = useCallback((forceReset = false, overrideAdj = null) => {
+    let newColors = [inputs[0]]; // Primary color is ALWAYS on the left
+    const count = numColors;
+    const adj = overrideAdj !== null ? overrideAdj : globalAdjustments;
+
+    if (inputs.length === 1) {
+      const rgbBase = hexToRgb(inputs[0]);
+      const baseVal = perceptuallyUniform 
+        ? rgbToOklch(rgbBase.r, rgbBase.g, rgbBase.b) 
+        : rgbToHsl(rgbBase.r, rgbBase.g, rgbBase.b);
+      
+      const harmonyMap = {
+        'complementary': [0, 180],
+        'split-complementary': [0, 150, 210],
+        'triadic': [0, 120, 240],
+        'tetradic': [0, 60, 180, 240],
+        'square': [0, 90, 180, 270]
+      };
+
+      const mappedAngles = [];
+      const mappedSubSteps = [];
+
+      // If it's a grouped geometric model, mathematically map colors to clusters
+      if (harmonyMap[mode]) {
+        const M = harmonyMap[mode].length;
+        for (let idx = 0; idx < count; idx++) {
+          const group = Math.floor((idx * M) / count);
+          mappedAngles.push(harmonyMap[mode][group]);
+          
+          const groupStart = Math.ceil((group * count) / M);
+          const groupEnd = Math.ceil(((group + 1) * count) / M);
+          const localSize = groupEnd - groupStart;
+          const localIndex = idx - groupStart;
+          
+          mappedSubSteps.push(localSize > 1 ? localIndex / (localSize - 1) : 0.5);
+        }
+      }
+
+      for (let i = 1; i < count; i++) {
+        let h = baseVal.h;
+        let s = perceptuallyUniform ? baseVal.C : baseVal.s;
+        let l = perceptuallyUniform ? baseVal.L : baseVal.l;
+        const step = (i - 1) / Math.max(1, count - 2); 
+
+        if (harmonyMap[mode]) {
+           h = (baseVal.h + mappedAngles[i]) % 360;
+           const subStep = mappedSubSteps[i];
+           l = perceptuallyUniform ? (0.25 + subStep * 0.5) : (25 + subStep * 50);
+        } else {
+           switch (mode) {
+             case 'monochromatic':
+               l = perceptuallyUniform ? (0.2 + step * 0.6) : (15 + step * 70); 
+               break;
+             case 'analogous':
+               h = (baseVal.h + 15 + (step * 60)) % 360; 
+               break;
+             case 'discordant':
+               h = (baseVal.h + (step * 360)) % 360;
+               s = perceptuallyUniform ? 0.35 : 90; 
+               l = perceptuallyUniform ? 0.5 : 50; 
+               break;
+             default:
+               break;
+           }
+        }
+
+        // Apply Global Adjustments (skips index 0)
+        h = (h + adj.h + 360) % 360;
+        
+        if (perceptuallyUniform) {
+           s = Math.max(0, Math.min(0.4, s + (adj.s / 100) * 0.4)); // Scaled for Oklch Chroma bounds
+           l = Math.max(0, Math.min(1, l + (adj.l / 100)));
+           newColors.push(oklchToHex(l, s, h));
+        } else {
+           s = Math.max(0, Math.min(100, s + adj.s));
+           l = Math.max(0, Math.min(100, l + adj.l));
+           newColors.push(hslToHex(h, s, l));
+        }
+      }
+    } else if (inputs.length === 2) {
+      for (let i = 1; i < count; i++) {
+        const factor = i / (count - 1);
+        newColors.push(perceptuallyUniform ? interpolateOklab(inputs[0], inputs[1], factor) : interpolateColor(inputs[0], inputs[1], factor));
+      }
+    } else if (inputs.length === 3) {
+      for (let i = 1; i < count; i++) {
+        const factor = i / (count - 1);
+        if (factor <= 0.5) {
+          newColors.push(perceptuallyUniform ? interpolateOklab(inputs[0], inputs[1], factor * 2) : interpolateColor(inputs[0], inputs[1], factor * 2));
+        } else {
+          newColors.push(perceptuallyUniform ? interpolateOklab(inputs[1], inputs[2], (factor - 0.5) * 2) : interpolateColor(inputs[1], inputs[2], (factor - 0.5) * 2));
+        }
+      }
+    }
+
+    // Preserve existing ratios if the count matches and we aren't resetting
+    setPalette(prev => {
+      if (prev.length === count && !forceReset) {
+        return newColors.map((hex, i) => (
+          prev[i] ? { ...prev[i], hex: hex } : { id: `color-${Date.now()}-${i}`, hex, ratio: 100/count }
+        ));
+      }
+      const equalRatio = 100 / count;
+      return newColors.map((hex, i) => ({
+        id: `color-${Date.now()}-${i}`,
+        hex: hex,
+        ratio: equalRatio
+      }));
+    });
+  }, [inputs, numColors, mode, globalAdjustments, perceptuallyUniform]);
+
+  // Initial trigger
+  useEffect(() => {
+    generatePalette();
+  }, [generatePalette]);
+
+  // --- Reset Wrapper ---
+  const handleReset = () => {
+    setGlobalAdjustments({ h: 0, s: 0, l: 0 });
+    generatePalette(true, { h: 0, s: 0, l: 0 });
+  };
+
+  // --- Interaction Logic ---
+  const handleAddInput = () => {
+    if (inputs.length < 3) {
+      const newColor = inputs.length === 1 ? '#F59E0B' : '#10B981';
+      setInputs([...inputs, newColor]);
+      setMode('blend');
+    }
+  };
+
+  const handleRemoveInput = (index) => {
+    const newInputs = inputs.filter((_, i) => i !== index);
+    setInputs(newInputs);
+    if (newInputs.length === 1 && mode === 'blend') setMode('analogous');
+  };
+
+  const updateInputColor = (index, hex) => {
+    const newInputs = [...inputs];
+    newInputs[index] = hex;
+    setInputs(newInputs);
+  };
+
+  const updateRatio = (index, newRatio) => {
+    setPalette(prev => {
+      if (!prev || !prev[index]) return prev;
+      
+      const newPal = prev.map(c => ({...c}));
+      const oldRatio = newPal[index].ratio;
+      const clampedRatio = Math.max(1, Math.min(99, newRatio));
+      
+      const oldRemaining = 100 - oldRatio;
+      const newRemaining = 100 - clampedRatio;
+
+      newPal[index].ratio = clampedRatio;
+
+      if (oldRemaining <= 0.001) {
+        const share = newRemaining / Math.max(1, newPal.length - 1);
+        for (let i = 0; i < newPal.length; i++) {
+          if (i !== index) newPal[i].ratio = share;
+        }
+      } else {
+        for (let i = 0; i < newPal.length; i++) {
+          if (i !== index) {
+            const proportion = newPal[i].ratio / oldRemaining;
+            newPal[i].ratio = proportion * newRemaining;
+          }
+        }
+      }
+      return newPal;
+    });
+  };
+
+  // Color wheel interaction logic
+  const onWheelPointerDown = (index) => (e) => {
+    e.stopPropagation();
+    wheelDragIndex.current = index;
+    document.body.style.cursor = 'crosshair';
+  };
+
+  useEffect(() => {
+    const onPointerMove = (e) => {
+      if (wheelDragIndex.current !== null && wheelRef.current) {
+        const rect = wheelRef.current.getBoundingClientRect();
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+        const dx = e.clientX - centerX;
+        const dy = e.clientY - centerY;
+        
+        let angle = Math.atan2(dy, dx) * (180 / Math.PI);
+        let hue = (angle + 90) % 360;
+        if (hue < 0) hue += 360;
+        
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        const maxRadius = rect.width / 2;
+        const sat = Math.min(100, Math.max(0, (dist / (maxRadius * 0.85)) * 100));
+
+        setPalette(prev => {
+          const idx = wheelDragIndex.current;
+          if (idx === null || !prev[idx]) return prev;
+
+          const newPal = prev.map(c => ({...c}));
+          const oldHsl = rgbToHsl(...Object.values(hexToRgb(newPal[idx].hex)));
+          
+          const deltaH = hue - oldHsl.h;
+          const deltaS = sat - oldHsl.s;
+
+          if (harmonyLock) {
+            for (let i = 0; i < newPal.length; i++) {
+              const cHsl = rgbToHsl(...Object.values(hexToRgb(newPal[i].hex)));
+              const newH = (cHsl.h + deltaH + 360) % 360;
+              const newS = Math.max(0, Math.min(100, cHsl.s + deltaS));
+              newPal[i].hex = hslToHex(newH, newS, cHsl.l);
+            }
+          } else {
+            newPal[idx].hex = hslToHex(hue, sat, oldHsl.l);
+          }
+          
+          return newPal;
+        });
+      }
+    };
+
+    const onPointerUp = () => {
+      if (wheelDragIndex.current !== null) {
+        wheelDragIndex.current = null;
+        document.body.style.cursor = 'default';
+      }
+    };
+
+    document.addEventListener('pointermove', onPointerMove);
+    document.addEventListener('pointerup', onPointerUp);
+    return () => {
+      document.removeEventListener('pointermove', onPointerMove);
+      document.removeEventListener('pointerup', onPointerUp);
+    };
+  }, [harmonyLock]);
+
+  // --- Export Logic ---
+  const generateSvgString = () => {
+    const width = 1000;
+    const height = 400;
+    let svg = `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">`;
+    let currentX = 0;
+    
+    palette.forEach((color) => {
+      const blockWidth = (color.ratio / 100) * width;
+      svg += `<rect x="${currentX}" y="0" width="${blockWidth}" height="${height}" fill="${color.hex}" />`;
+      currentX += blockWidth;
+    });
+    
+    svg += `</svg>`;
+    return svg;
+  };
+
+  const copySvg = async () => {
+    try {
+      await navigator.clipboard.writeText(generateSvgString());
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      const textArea = document.createElement("textarea");
+      textArea.value = generateSvgString();
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textArea);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  // --- Render Helpers ---
+  const renderColorWheel = () => {
+    return (
+      <div 
+        ref={wheelRef}
+        className="relative w-48 h-48 mx-auto mt-2 mb-6 rounded-full touch-none"
+      >
+        <div className="absolute inset-0 rounded-full border border-zinc-700 bg-zinc-900 overflow-hidden pointer-events-none">
+          <div className="w-full h-full" style={{
+            background: 'conic-gradient(red, yellow, lime, cyan, blue, magenta, red)',
+            opacity: 0.25
+          }}></div>
+          <div className="absolute inset-4 rounded-full border border-zinc-800"></div>
+          <div className="absolute inset-10 rounded-full border border-zinc-800"></div>
+          <div className="absolute inset-[4.5rem] rounded-full border border-zinc-800"></div>
+        </div>
+        
+        {palette.map((color, i) => {
+          if (!color) return null;
+          
+          const hsl = rgbToHsl(...Object.values(hexToRgb(color.hex)));
+          const angle = (hsl.h - 90) * (Math.PI / 180); 
+          const radius = (hsl.s / 100) * 85; 
+          
+          const x = 96 + radius * Math.cos(angle); 
+          const y = 96 + radius * Math.sin(angle);
+          
+          const isBase = i === 0;
+          
+          return (
+            <div 
+              key={color.id}
+              onPointerDown={onWheelPointerDown(i)}
+              className={`absolute w-4 h-4 -ml-2 -mt-2 rounded-full border-2 border-white shadow-lg z-10 cursor-crosshair hover:scale-125 transition-transform ${isBase ? 'ring-2 ring-blue-500' : ''}`}
+              style={{
+                left: `${x}px`,
+                top: `${y}px`,
+                backgroundColor: color.hex,
+              }}
+              title={`Drag to tune ${color.hex}`}
+            />
+          );
+        })}
+      </div>
+    );
+  };
+
+  const renderFineTunePopup = () => {
+    if (activeTuneIndex === null || !palette[activeTuneIndex]) return null;
+    
+    const color = palette[activeTuneIndex];
+    const hsl = rgbToHsl(...Object.values(hexToRgb(color.hex)));
+    
+    const updateHsl = (h, s, l) => {
+      const newHex = hslToHex(h, s, l);
+      setPalette(prev => {
+        if (!prev[activeTuneIndex]) return prev;
+        const newPal = prev.map(c => ({...c}));
+        newPal[activeTuneIndex].hex = newHex;
+        return newPal;
+      });
+    };
+
+    return (
+      <div className="absolute bottom-6 right-6 bg-zinc-900/95 border border-zinc-700/80 rounded-xl p-5 shadow-2xl z-50 w-72 backdrop-blur-xl animate-in fade-in slide-in-from-bottom-4">
+        <div className="flex justify-between items-center mb-5">
+          <div className="flex items-center gap-3">
+            <div className="w-5 h-5 rounded-full shadow-inner border border-white/20" style={{backgroundColor: color.hex}} />
+            <h3 className="text-sm font-semibold text-zinc-200 uppercase font-mono tracking-wider">{color.hex}</h3>
+          </div>
+          <button onClick={() => setActiveTuneIndex(null)} className="text-zinc-500 hover:text-white transition-colors">
+            <Plus className="w-5 h-5 rotate-45" />
+          </button>
+        </div>
+        
+        <div className="space-y-5">
+          <div>
+            <div className="flex justify-between text-xs text-zinc-400 mb-2 font-medium">
+              <span>Width Ratio</span>
+              <span>{(color.ratio || 0).toFixed(1)}%</span>
+            </div>
+            <input 
+              type="range" min="1" max="99" step="0.1"
+              value={color.ratio || 0}
+              onChange={(e) => updateRatio(activeTuneIndex, parseFloat(e.target.value))}
+              className="w-full h-2 rounded-lg appearance-none cursor-pointer border border-zinc-800 accent-blue-500"
+              style={{ background: '#27272a' }}
+            />
+          </div>
+          <div className="pt-2 border-t border-zinc-800/50">
+            <div className="flex justify-between text-xs text-zinc-400 mb-2 font-medium">
+              <span>Hue</span>
+              <span>{Math.round(hsl.h)}°</span>
+            </div>
+            <input 
+              type="range" min="0" max="360" 
+              value={hsl.h}
+              onChange={(e) => updateHsl(Number(e.target.value), hsl.s, hsl.l)}
+              className="w-full h-2 rounded-lg appearance-none cursor-pointer border border-zinc-800"
+              style={{ background: 'linear-gradient(to right, red, yellow, lime, cyan, blue, magenta, red)' }}
+            />
+          </div>
+          <div>
+            <div className="flex justify-between text-xs text-zinc-400 mb-2 font-medium">
+              <span>Saturation</span>
+              <span>{Math.round(hsl.s)}%</span>
+            </div>
+            <input 
+              type="range" min="0" max="100" 
+              value={hsl.s}
+              onChange={(e) => updateHsl(hsl.h, Number(e.target.value), hsl.l)}
+              className="w-full h-2 rounded-lg appearance-none cursor-pointer border border-zinc-800"
+              style={{ background: `linear-gradient(to right, hsl(${hsl.h}, 0%, ${hsl.l}%), hsl(${hsl.h}, 100%, ${hsl.l}%))` }}
+            />
+          </div>
+          <div>
+            <div className="flex justify-between text-xs text-zinc-400 mb-2 font-medium">
+              <span>Brightness</span>
+              <span>{Math.round(hsl.l)}%</span>
+            </div>
+            <input 
+              type="range" min="0" max="100" 
+              value={hsl.l}
+              onChange={(e) => updateHsl(hsl.h, hsl.s, Number(e.target.value))}
+              className="w-full h-2 rounded-lg appearance-none cursor-pointer border border-zinc-800"
+              style={{ background: `linear-gradient(to right, black, hsl(${hsl.h}, ${hsl.s}%, 50%), white)` }}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="flex flex-col lg:flex-row h-screen bg-zinc-950 text-zinc-200 font-sans overflow-hidden selection:bg-blue-500/30">
+      
+      {/* LEFT PANEL: Controls */}
+      <div className="w-full lg:w-[400px] h-1/2 lg:h-full flex-shrink-0 border-r border-zinc-800 bg-zinc-900/50 flex flex-col overflow-y-auto z-20 custom-scrollbar">
+        <div className="p-6 border-b border-zinc-800">
+          <div className="flex items-center gap-3 text-white mb-1">
+            <Wand2 className="w-6 h-6 text-blue-400" />
+            <h1 className="text-xl font-bold tracking-tight">ChromaCraft</h1>
+          </div>
+          <p className="text-sm text-zinc-400">Advanced Palette Synthesis</p>
+        </div>
+
+        <div className="p-6 space-y-8 flex-1">
+          {/* Input Colors Section */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Base Colors</h2>
+              {inputs.length < 3 && (
+                <button 
+                  onClick={handleAddInput}
+                  className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 transition-colors bg-blue-400/10 px-2 py-1 rounded"
+                >
+                  <Plus className="w-3 h-3" /> Add Input
+                </button>
+              )}
+            </div>
+            
+            <div className="space-y-3">
+              {inputs.map((hex, i) => (
+                <div key={i} className="flex items-center gap-3 bg-zinc-900 border border-zinc-800 p-2 rounded-lg group">
+                  <div className="relative w-10 h-10 rounded shadow-inner overflow-hidden flex-shrink-0">
+                    <input 
+                      type="color" 
+                      value={hex}
+                      onChange={(e) => updateInputColor(i, e.target.value)}
+                      className="absolute -top-2 -left-2 w-16 h-16 cursor-pointer"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-xs text-zinc-500 mb-0.5">Input {i + 1}</div>
+                    <input 
+                      type="text" 
+                      value={hex}
+                      onChange={(e) => updateInputColor(i, e.target.value)}
+                      className="bg-transparent text-sm font-mono text-zinc-300 w-full outline-none uppercase"
+                    />
+                  </div>
+                  {inputs.length > 1 && (
+                    <button 
+                      onClick={() => handleRemoveInput(i)}
+                      className="p-2 text-zinc-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
+                    >
+                      <Minus className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Configuration Section */}
+          <div className="space-y-6">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">System</h2>
+            
+            <div className="space-y-3">
+              <label className="text-xs text-zinc-400 flex justify-between">
+                <span>Output Count</span>
+                <span className="text-zinc-200">{numColors} Colors</span>
+              </label>
+              <input 
+                type="range" 
+                min="2" max="20" 
+                value={numColors}
+                onChange={(e) => setNumColors(parseInt(e.target.value))}
+                className="w-full accent-blue-500 h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer"
+              />
+            </div>
+
+            <div className="space-y-3">
+              <label className="text-xs text-zinc-400 flex justify-between">
+                <span>Primary Color Weight</span>
+                <span className="text-zinc-200">
+                  {palette.length > 0 ? (palette[0]?.ratio || 0).toFixed(1) : 0}%
+                </span>
+              </label>
+              <input 
+                type="range" 
+                min="1" 
+                max="99" 
+                step="0.1"
+                value={palette.length > 0 ? (palette[0]?.ratio || (100 / numColors)) : 100 / numColors}
+                onChange={(e) => updateRatio(0, parseFloat(e.target.value))}
+                className="w-full accent-blue-500 h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer"
+              />
+            </div>
+
+            <div className="space-y-3">
+              <label className="text-xs text-zinc-400">Harmony Model</label>
+              <select 
+                value={mode} 
+                onChange={(e) => setMode(e.target.value)}
+                disabled={inputs.length > 1}
+                className="w-full bg-zinc-900 border border-zinc-800 text-sm text-zinc-200 p-2.5 rounded-lg outline-none focus:border-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {inputs.length > 1 ? (
+                  <option value="blend">Algorithmic Blend (Multi-Input)</option>
+                ) : (
+                  <>
+                    <optgroup label="Standard">
+                      <option value="monochromatic">Monochromatic (Value Shift)</option>
+                      <option value="analogous">Analogous (Neighboring)</option>
+                      <option value="discordant">Discordant (Vibrating)</option>
+                    </optgroup>
+                    <optgroup label="Geometric">
+                      <option value="complementary">Complementary (Contrasting)</option>
+                      <option value="split-complementary">Split-Complementary (150°, 210°)</option>
+                      <option value="triadic">Triadic (120° Spread)</option>
+                      <option value="tetradic">Tetradic (Double Comp)</option>
+                      <option value="square">Square (90° Spread)</option>
+                    </optgroup>
+                  </>
+                )}
+              </select>
+            </div>
+
+            <div className="flex items-center justify-between mt-4 p-3 bg-zinc-900/50 border border-zinc-800 rounded-lg">
+              <div className="flex flex-col">
+                <span className="text-sm text-zinc-300 font-medium">Perceptually Uniform</span>
+                <span className="text-[10px] text-zinc-500">Oklab color space blending</span>
+              </div>
+              <div className="flex items-center gap-2 cursor-pointer" onClick={() => setPerceptuallyUniform(!perceptuallyUniform)}>
+                <div className={`w-8 h-4 rounded-full p-0.5 transition-colors relative flex items-center ${perceptuallyUniform ? 'bg-emerald-500' : 'bg-zinc-700'}`}>
+                  <div className={`w-3 h-3 rounded-full bg-white transition-transform shadow-sm ${perceptuallyUniform ? 'translate-x-[16px]' : 'translate-x-0'}`} />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Global Adjustments Section */}
+          {inputs.length === 1 && (
+            <div className="space-y-6 pt-6 border-t border-zinc-800/50">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">
+                Global Adjustments <span className="text-[10px] lowercase normal-case">(Excl. Primary)</span>
+              </h2>
+              
+              <div className="space-y-3">
+                <label className="text-xs text-zinc-400 flex justify-between">
+                  <span>Hue Shift</span>
+                  <span className="text-zinc-200">{globalAdjustments.h}°</span>
+                </label>
+                <input 
+                  type="range" min="-180" max="180" 
+                  value={globalAdjustments.h}
+                  onChange={(e) => setGlobalAdjustments(prev => ({...prev, h: parseInt(e.target.value)}))}
+                  className="w-full accent-blue-500 h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer"
+                />
+              </div>
+
+              <div className="space-y-3">
+                <label className="text-xs text-zinc-400 flex justify-between">
+                  <span>Saturation</span>
+                  <span className="text-zinc-200">{globalAdjustments.s > 0 ? '+' : ''}{globalAdjustments.s}%</span>
+                </label>
+                <input 
+                  type="range" min="-100" max="100" 
+                  value={globalAdjustments.s}
+                  onChange={(e) => setGlobalAdjustments(prev => ({...prev, s: parseInt(e.target.value)}))}
+                  className="w-full accent-blue-500 h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer"
+                />
+              </div>
+
+              <div className="space-y-3">
+                <label className="text-xs text-zinc-400 flex justify-between">
+                  <span>Brightness</span>
+                  <span className="text-zinc-200">{globalAdjustments.l > 0 ? '+' : ''}{globalAdjustments.l}%</span>
+                </label>
+                <input 
+                  type="range" min="-100" max="100" 
+                  value={globalAdjustments.l}
+                  onChange={(e) => setGlobalAdjustments(prev => ({...prev, l: parseInt(e.target.value)}))}
+                  className="w-full accent-blue-500 h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Visualizer */}
+          <div className="pt-6 border-t border-zinc-800/50">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Interactive Matrix</h2>
+              <div className="flex items-center gap-2 cursor-pointer" onClick={() => setHarmonyLock(!harmonyLock)}>
+                <span className="text-[10px] text-zinc-400 uppercase tracking-wide">Harmony Lock</span>
+                <div className={`w-7 h-3.5 rounded-full p-0.5 transition-colors relative flex items-center ${harmonyLock ? 'bg-blue-500' : 'bg-zinc-700'}`}>
+                  <div className={`w-2.5 h-2.5 rounded-full bg-white transition-transform shadow-sm ${harmonyLock ? 'translate-x-[14px]' : 'translate-x-0'}`} />
+                </div>
+              </div>
+            </div>
+            <p className="text-[10px] text-zinc-500 leading-tight mb-3">Drag nodes to manually tweak hues</p>
+            {renderColorWheel()}
+          </div>
+        </div>
+      </div>
+
+      {/* RIGHT PANEL: The Canvas */}
+      <div className="flex-1 flex flex-col h-1/2 lg:h-full bg-[#0a0a0a] relative">
+        
+        {/* Toolbar */}
+        <div className="h-16 flex items-center justify-between px-6 border-b border-zinc-800/50 bg-zinc-950/80 backdrop-blur-sm z-10">
+          <div className="flex items-center gap-4">
+             <button 
+                onClick={handleReset}
+                className="flex items-center gap-2 text-sm bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 px-4 py-2 rounded-lg transition-colors shadow-sm"
+              >
+                <RefreshCw className="w-4 h-4 text-blue-400" />
+                Reset
+              </button>
+          </div>
+          <button 
+            onClick={copySvg}
+            className={`flex items-center gap-2 text-sm px-4 py-2 rounded-lg font-medium transition-all ${
+              copied 
+                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' 
+                : 'bg-blue-600 text-white hover:bg-blue-500 shadow-lg shadow-blue-900/20'
+            }`}
+          >
+            {copied ? <Check className="w-4 h-4" /> : <Download className="w-4 h-4" />}
+            {copied ? 'SVG Copied!' : 'Export SVG'}
+          </button>
+        </div>
+
+        {/* Interactive Palette Container */}
+        <div 
+          ref={containerRef}
+          className="flex-1 flex w-full relative group"
+        >
+          {palette.map((color, idx) => {
+            if (!color) return null;
+            
+            return (
+              <div 
+                key={color.id}
+                className="relative h-full flex flex-col items-center justify-end pb-12 transition-all duration-75 group/block"
+                style={{ 
+                  width: `${color.ratio || 0}%`, 
+                  backgroundColor: color.hex 
+                }}
+              >
+                {/* Custom Click overlay to open tuning popup */}
+                <div 
+                  onClick={() => setActiveTuneIndex(idx)}
+                  className="absolute inset-0 z-10 cursor-pointer"
+                  title="Click to fine-tune"
+                />
+
+                {/* Color Data UI (Appears on Hover) */}
+                <div className="opacity-0 group-hover/block:opacity-100 transition-opacity absolute bottom-8 left-1/2 -translate-x-1/2 bg-zinc-950/80 backdrop-blur text-white px-3 py-2 rounded-xl border border-white/10 shadow-2xl flex flex-col items-center gap-1 z-20 pointer-events-none whitespace-nowrap">
+                  <span className="font-mono text-sm tracking-wider uppercase font-bold">{color.hex}</span>
+                  <span className="text-[10px] text-zinc-400 font-medium">{(color.ratio || 0).toFixed(1)}%</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        
+        {/* Render bottom-right Fine Tune Popup */}
+        {renderFineTunePopup()}
+      </div>
+    </div>
+  );
+}
