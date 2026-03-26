@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ChromaCraft Synthesis</title>
+  <title>Colour Worlds Synthesis</title>
   
   <!-- Standalone React & Babel -->
   <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
@@ -12,14 +12,31 @@
   
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            zinc: {
+              950: '#09090b',
+            }
+          }
+        }
+      }
+    }
+  </script>
   
   <style>
     /* Custom Scrollbar */
     .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
     .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-    .custom-scrollbar::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 3px; }
-    .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #52525b; }
-    body { background-color: #09090b; margin: 0; overflow: hidden; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #d4d4d8; border-radius: 3px; }
+    .dark .custom-scrollbar::-webkit-scrollbar-thumb { background: #3f3f46; }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #a1a1aa; }
+    .dark .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #52525b; }
+    body { background-color: #ffffff; margin: 0; overflow: hidden; }
+    @media (prefers-color-scheme: dark) { body { background-color: #09090b; } }
   </style>
 </head>
 <body>
@@ -28,7 +45,7 @@
   <script type="text/babel">
     const { useState, useEffect, useRef, useCallback } = React;
 
-    // --- Inline SVG Icons (Replacing lucide-react for standalone HTML) ---
+    // --- Inline SVG Icons ---
     const Icons = {
       Download: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>,
       Plus: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>,
@@ -38,7 +55,20 @@
       RefreshCw: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>,
       ArrowLeftRight: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg>,
       Layers: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>,
-      X: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      X: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
+      Sun: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>,
+      Moon: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>,
+      GlobeIcon: (p) => (
+        <svg viewBox="0 0 24 24" fill="none" {...p}>
+          <clipPath id="globe-clip"><circle cx="12" cy="12" r="10" /></clipPath>
+          <g clipPath="url(#globe-clip)">
+            <rect x="0" y="0" width="6" height="24" fill="#a3e635" />
+            <rect x="6" y="0" width="6" height="24" fill="#facc15" />
+            <rect x="12" y="0" width="6" height="24" fill="#fb923c" />
+            <rect x="18" y="0" width="6" height="24" fill="#ef4444" />
+          </g>
+        </svg>
+      )
     };
 
     // --- Color Math & Utilities ---
@@ -236,9 +266,19 @@
                  h = (baseVal.h + 15 + (step * 60)) % 360; 
                  break;
                case 'discordant':
-                 h = (baseVal.h + (step * 360)) % 360;
-                 s = perceptuallyUniform ? 0.35 : 90; 
-                 l = perceptuallyUniform ? 0.5 : 50; 
+                 const disc = config.discordance !== undefined ? config.discordance : 50;
+                 const hueShift = 137.5 + (disc - 50) * 1.5; 
+                 h = (baseVal.h + (i * hueShift)) % 360;
+                 
+                 if (perceptuallyUniform) {
+                    s = 0.2 + ((i%2) * 0.15) * (disc / 50);
+                    l = 0.4 + ((i%3) * 0.2) * (disc / 50);
+                 } else {
+                    s = 50 + ((i%2) * 40) * (disc / 50);
+                    l = 30 + ((i%3) * 30) * (disc / 50);
+                 }
+                 s = Math.min(perceptuallyUniform ? 0.4 : 100, Math.max(0, s));
+                 l = Math.min(perceptuallyUniform ? 1 : 100, Math.max(0, l));
                  break;
                case 'itten-light-dark':
                  l = perceptuallyUniform ? (0.9 - step * 0.7) : (90 - step * 75);
@@ -296,7 +336,6 @@
         }
       }
 
-      // Preserve ratios if mapping length hasn't changed
       let newPalette = [];
       if (config.palette.length === count && !forceReset) {
         newPalette = newColors.map((hex, i) => (
@@ -325,11 +364,15 @@
 
     function App() {
       // --- Master App State ---
+      const [appTheme, setAppTheme] = useState('dark'); // 'dark', 'light'
       const [appMode, setAppMode] = useState('harmony'); 
       const [activeTab, setActiveTab] = useState(0);
       const [copied, setCopied] = useState(false);
       const [activeTune, setActiveTune] = useState({ cIdx: null, colorIdx: null }); 
-      const [canvasBg, setCanvasBg] = useState('black'); // 'black', 'grey', 'white'
+      
+      const [previewMode, setPreviewMode] = useState('theme'); // 'theme', 'custom'
+      const [previewGrey, setPreviewGrey] = useState(50); // 0-100 for custom gray
+      const [showGreySlider, setShowGreySlider] = useState(false);
       
       const defaultConfig = {
         id: 'A',
@@ -339,7 +382,8 @@
         globalAdjustments: { h: 0, s: 0, l: 0 },
         perceptuallyUniform: false,
         harmonyLock: true,
-        easing: [{ x1: 0.33, y1: 0.33, x2: 0.67, y2: 0.67 }],
+        discordance: 50, 
+        easing: [{ x1: 0.33, y1: 0.33, x2: 0.67, y2: 0.67 }, { x1: 0.33, y1: 0.33, x2: 0.67, y2: 0.67 }],
         paletteRatio: 100,
         palette: []
       };
@@ -371,7 +415,8 @@
           setConfigs(prev => [generatePaletteForConfig({
             ...prev[activeTab],
             inputs: [prev[activeTab].inputs[0]],
-            paletteRatio: 100
+            paletteRatio: 100,
+            discordance: 50
           }, true)]);
         } else if (mode === 'blend') {
           setConfigs(prev => {
@@ -380,13 +425,13 @@
             const newEasing = base.easing && base.easing.length >= (newInputs.length - 1)
               ? base.easing 
               : Array.from({length: newInputs.length - 1}, () => ({ x1: 0.33, y1: 0.33, x2: 0.67, y2: 0.67 }));
-            return [generatePaletteForConfig({ ...base, inputs: newInputs, easing: newEasing, paletteRatio: 100 }, true)];
+            return [generatePaletteForConfig({ ...base, inputs: newInputs, easing: newEasing, paletteRatio: 100, discordance: 50 }, true)];
           });
         } else if (mode === 'multi') {
           setConfigs(prev => {
             const c1 = { ...prev[0], id: 'A', paletteRatio: 33.33 };
-            const c2 = generatePaletteForConfig({ ...c1, id: 'B', inputs: ['#10B981'], mode: 'complementary', paletteRatio: 33.33 }, true);
-            const c3 = generatePaletteForConfig({ ...c1, id: 'C', inputs: ['#F59E0B'], mode: 'triadic', paletteRatio: 33.34 }, true);
+            const c2 = generatePaletteForConfig({ ...c1, id: 'B', inputs: ['#10B981'], mode: 'complementary', paletteRatio: 33.33, discordance: 50 }, true);
+            const c3 = generatePaletteForConfig({ ...c1, id: 'C', inputs: ['#F59E0B'], mode: 'triadic', paletteRatio: 33.34, discordance: 50 }, true);
             return [c1, c2, c3];
           });
         }
@@ -395,6 +440,7 @@
       const handleReset = () => {
         updateConfig(activeTab, { 
           globalAdjustments: { h: 0, s: 0, l: 0 },
+          discordance: 50,
           easing: Array.from({length: configs[activeTab].inputs.length - 1 || 1}, () => ({ x1: 0.33, y1: 0.33, x2: 0.67, y2: 0.67 }))
         }, true);
         
@@ -444,7 +490,8 @@
             id: getNextId(newConfigs),
             inputs: ['#10B981'],
             mode: 'analogous',
-            paletteRatio: 0 
+            paletteRatio: 0,
+            discordance: 50
           }, true);
           
           newConfigs.push(newConfig);
@@ -768,34 +815,34 @@
           const H2x = Kx_i + e.x2 * Dx;
           const H2y = Ky_i + e.y2 * Dy;
 
+          const strokeColor = appTheme === 'dark' ? '#52525b' : '#d4d4d8';
+
           segments.push(
             <g key={`seg-${i}`}>
               <path d={`M ${Kx_i} ${Ky_i} C ${H1x} ${H1y}, ${H2x} ${H2y}, ${Kx_next} ${Ky_next}`} fill="none" stroke="#3B82F6" strokeWidth="4" strokeLinecap="round" />
-              <line x1={Kx_i} y1={Ky_i} x2={H1x} y2={H1y} stroke="#52525b" strokeWidth="2" strokeDasharray="4 4" />
-              <line x1={Kx_next} y1={Ky_next} x2={H2x} y2={H2y} stroke="#52525b" strokeWidth="2" strokeDasharray="4 4" />
+              <line x1={Kx_i} y1={Ky_i} x2={H1x} y2={H1y} stroke={strokeColor} strokeWidth="2" strokeDasharray="4 4" />
+              <line x1={Kx_next} y1={Ky_next} x2={H2x} y2={H2y} stroke={strokeColor} strokeWidth="2" strokeDasharray="4 4" />
             </g>
           );
 
-          // HTML Overlay Handles (Perfectly circular across aspect ratios)
           htmlOverlays.push(
-            <div key={`h1-${i}`} className="absolute w-4 h-4 rounded-full bg-zinc-400 cursor-grab hover:bg-white transition-colors shadow-md border border-zinc-900 z-10"
+            <div key={`h1-${i}`} className="absolute w-4 h-4 rounded-full bg-zinc-400 cursor-grab hover:bg-white transition-colors shadow-md border border-white dark:border-zinc-900 z-10"
                  style={{ left: `calc(${(H1x / 1000) * 100}% - 8px)`, top: `calc(${(H1y / 200) * 100}% - 8px)` }}
                  onPointerDown={(evt) => { evt.stopPropagation(); bezierDragData.current = { segIdx: i, handleIdx: 1 }; document.body.style.cursor = 'grabbing'; }} />
           );
           htmlOverlays.push(
-            <div key={`h2-${i}`} className="absolute w-4 h-4 rounded-full bg-zinc-400 cursor-grab hover:bg-white transition-colors shadow-md border border-zinc-900 z-10"
+            <div key={`h2-${i}`} className="absolute w-4 h-4 rounded-full bg-zinc-400 cursor-grab hover:bg-white transition-colors shadow-md border border-white dark:border-zinc-900 z-10"
                  style={{ left: `calc(${(H2x / 1000) * 100}% - 8px)`, top: `calc(${(H2y / 200) * 100}% - 8px)` }}
                  onPointerDown={(evt) => { evt.stopPropagation(); bezierDragData.current = { segIdx: i, handleIdx: 2 }; document.body.style.cursor = 'grabbing'; }} />
           );
 
-          // HTML Overlay Anchors
           htmlOverlays.push(
-            <div key={`anchor-${i}`} className="absolute w-6 h-6 rounded-full border-4 border-white shadow-lg z-20"
+            <div key={`anchor-${i}`} className="absolute w-6 h-6 rounded-full border-4 border-zinc-100 dark:border-zinc-950 shadow-lg z-20"
                  style={{ left: `calc(${(Kx_i / 1000) * 100}% - 12px)`, top: `calc(${(Ky_i / 200) * 100}% - 12px)`, backgroundColor: activeConfig.inputs[i] }} />
           );
           if (i === N - 2) {
             htmlOverlays.push(
-              <div key={`anchor-${i+1}`} className="absolute w-6 h-6 rounded-full border-4 border-white shadow-lg z-20"
+              <div key={`anchor-${i+1}`} className="absolute w-6 h-6 rounded-full border-4 border-zinc-100 dark:border-zinc-950 shadow-lg z-20"
                    style={{ left: `calc(${(Kx_next / 1000) * 100}% - 12px)`, top: `calc(${(Ky_next / 200) * 100}% - 12px)`, backgroundColor: activeConfig.inputs[i+1] }} />
             );
           }
@@ -828,16 +875,16 @@
            
            if (activeConfig.palette[i]) {
              htmlOverlays.push(
-                <div key={`dot-${i}`} className="absolute w-3.5 h-3.5 rounded-full border-[2.5px] border-zinc-900 z-0 transition-all duration-75"
+                <div key={`dot-${i}`} className="absolute w-3.5 h-3.5 rounded-full border-[2.5px] border-white dark:border-zinc-900 z-0 transition-all duration-75"
                      style={{ left: `calc(${(svgX / 1000) * 100}% - 7px)`, top: `calc(${(svgY / 200) * 100}% - 7px)`, backgroundColor: activeConfig.palette[i].hex }} />
              );
            }
         }
 
         return (
-          <div className="pt-4 border-t border-zinc-800/50 space-y-3">
-            <label className="text-xs text-zinc-400">Distribution Curve (Drag handles to ease)</label>
-            <div ref={bezierSvgRef} className="w-full h-40 bg-zinc-900 border border-zinc-800 rounded-lg relative shadow-inner overflow-visible">
+          <div className="pt-4 border-t border-zinc-200 dark:border-zinc-800/50 space-y-3">
+            <label className="text-xs text-zinc-500 dark:text-zinc-400">Distribution Curve (Drag handles to ease)</label>
+            <div ref={bezierSvgRef} className="w-full h-40 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg relative shadow-sm dark:shadow-inner overflow-visible">
                <svg viewBox="0 0 1000 200" preserveAspectRatio="none" className="absolute inset-0 w-full h-full pointer-events-none">
                  {segments}
                </svg>
@@ -852,16 +899,16 @@
         return (
           <div 
             ref={wheelRef}
-            className="relative w-48 h-48 mx-auto mt-2 mb-6 rounded-full touch-none"
+            className="relative w-48 h-48 mx-auto mt-2 mb-6 rounded-full touch-none bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 shadow-sm dark:shadow-none"
           >
-            <div className="absolute inset-0 rounded-full border border-zinc-700 bg-zinc-900 overflow-hidden pointer-events-none">
+            <div className="absolute inset-0 rounded-full overflow-hidden pointer-events-none">
               <div className="w-full h-full" style={{
                 background: 'conic-gradient(red, yellow, lime, cyan, blue, magenta, red)',
                 opacity: 0.25
               }}></div>
-              <div className="absolute inset-4 rounded-full border border-zinc-800"></div>
-              <div className="absolute inset-10 rounded-full border border-zinc-800"></div>
-              <div className="absolute inset-[4.5rem] rounded-full border border-zinc-800"></div>
+              <div className="absolute inset-4 rounded-full border border-zinc-200 dark:border-zinc-800"></div>
+              <div className="absolute inset-10 rounded-full border border-zinc-200 dark:border-zinc-800"></div>
+              <div className="absolute inset-[4.5rem] rounded-full border border-zinc-300 dark:border-zinc-700"></div>
             </div>
             
             {activeConfig.palette.map((color, i) => {
@@ -910,20 +957,20 @@
         };
 
         return (
-          <div className="absolute bottom-6 right-6 bg-zinc-900/95 border border-zinc-700/80 rounded-xl p-5 shadow-2xl z-50 w-72 backdrop-blur-xl animate-in fade-in slide-in-from-bottom-4">
-            <div className="flex justify-between items-center mb-5">
+          <div className="absolute bottom-6 right-6 bg-white/95 dark:bg-zinc-900/95 border border-zinc-200/80 dark:border-zinc-700/80 rounded-xl p-5 shadow-2xl z-50 w-72 backdrop-blur-xl animate-in fade-in slide-in-from-bottom-4">
+            <div className="flex justify-between items-center mb-5 text-zinc-900 dark:text-zinc-200">
               <div className="flex items-center gap-3">
-                <div className="w-5 h-5 rounded-full shadow-inner border border-white/20" style={{backgroundColor: color.hex}} />
-                <h3 className="text-sm font-semibold text-zinc-200 uppercase font-mono tracking-wider">{color.hex}</h3>
+                <div className="w-5 h-5 rounded-full shadow-inner border border-black/10 dark:border-white/20" style={{backgroundColor: color.hex}} />
+                <h3 className="text-sm font-semibold uppercase font-mono tracking-wider">{color.hex}</h3>
               </div>
-              <button onClick={() => setActiveTune({ cIdx: null, colorIdx: null })} className="text-zinc-500 hover:text-white transition-colors">
+              <button onClick={() => setActiveTune({ cIdx: null, colorIdx: null })} className="text-zinc-500 hover:text-zinc-800 dark:hover:text-white transition-colors">
                 <Icons.Plus className="w-5 h-5 rotate-45" />
               </button>
             </div>
             
             <div className="space-y-5">
               <div>
-                <div className="flex justify-between text-xs text-zinc-400 mb-2 font-medium">
+                <div className="flex justify-between text-xs text-zinc-500 dark:text-zinc-400 mb-2 font-medium">
                   <span>Width Ratio</span>
                   <span>{(color.ratio || 0).toFixed(1)}%</span>
                 </div>
@@ -931,12 +978,11 @@
                   type="range" min="1" max="99" step="0.1"
                   value={color.ratio || 0}
                   onChange={(e) => updateRatio(activeTune.cIdx, activeTune.colorIdx, parseFloat(e.target.value))}
-                  className="w-full h-2 rounded-lg appearance-none cursor-pointer border border-zinc-800 accent-blue-500"
-                  style={{ background: '#27272a' }}
+                  className="w-full h-2 rounded-lg appearance-none cursor-pointer bg-zinc-200 dark:bg-zinc-800 accent-blue-500"
                 />
               </div>
-              <div className="pt-2 border-t border-zinc-800/50">
-                <div className="flex justify-between text-xs text-zinc-400 mb-2 font-medium">
+              <div className="pt-2 border-t border-zinc-200 dark:border-zinc-800/50">
+                <div className="flex justify-between text-xs text-zinc-500 dark:text-zinc-400 mb-2 font-medium">
                   <span>Hue</span>
                   <span>{Math.round(hsl.h)}°</span>
                 </div>
@@ -944,12 +990,12 @@
                   type="range" min="0" max="360" 
                   value={hsl.h}
                   onChange={(e) => updateHsl(Number(e.target.value), hsl.s, hsl.l)}
-                  className="w-full h-2 rounded-lg appearance-none cursor-pointer border border-zinc-800"
+                  className="w-full h-2 rounded-lg appearance-none cursor-pointer border border-zinc-200 dark:border-zinc-800"
                   style={{ background: 'linear-gradient(to right, red, yellow, lime, cyan, blue, magenta, red)' }}
                 />
               </div>
               <div>
-                <div className="flex justify-between text-xs text-zinc-400 mb-2 font-medium">
+                <div className="flex justify-between text-xs text-zinc-500 dark:text-zinc-400 mb-2 font-medium">
                   <span>Saturation</span>
                   <span>{Math.round(hsl.s)}%</span>
                 </div>
@@ -957,12 +1003,12 @@
                   type="range" min="0" max="100" 
                   value={hsl.s}
                   onChange={(e) => updateHsl(hsl.h, Number(e.target.value), hsl.l)}
-                  className="w-full h-2 rounded-lg appearance-none cursor-pointer border border-zinc-800"
+                  className="w-full h-2 rounded-lg appearance-none cursor-pointer border border-zinc-200 dark:border-zinc-800"
                   style={{ background: `linear-gradient(to right, hsl(${hsl.h}, 0%, ${hsl.l}%), hsl(${hsl.h}, 100%, ${hsl.l}%))` }}
                 />
               </div>
               <div>
-                <div className="flex justify-between text-xs text-zinc-400 mb-2 font-medium">
+                <div className="flex justify-between text-xs text-zinc-500 dark:text-zinc-400 mb-2 font-medium">
                   <span>Brightness</span>
                   <span>{Math.round(hsl.l)}%</span>
                 </div>
@@ -970,7 +1016,7 @@
                   type="range" min="0" max="100" 
                   value={hsl.l}
                   onChange={(e) => updateHsl(hsl.h, hsl.s, Number(e.target.value))}
-                  className="w-full h-2 rounded-lg appearance-none cursor-pointer border border-zinc-800"
+                  className="w-full h-2 rounded-lg appearance-none cursor-pointer border border-zinc-200 dark:border-zinc-800"
                   style={{ background: `linear-gradient(to right, black, hsl(${hsl.h}, ${hsl.s}%, 50%), white)` }}
                 />
               </div>
@@ -981,329 +1027,378 @@
 
       if (!activeConfig) return null;
       
+      const isPreviewLight = previewMode === 'custom' ? previewGrey > 50 : appTheme === 'light';
+      
       const getToolbarStyle = () => {
-        if (canvasBg === 'white') return { backgroundColor: '#ffffff', borderColor: '#e4e4e7', color: '#18181b' }; 
-        if (canvasBg === 'grey') return { backgroundColor: '#71717a', borderColor: '#52525b', color: '#f4f4f5' };
-        return { backgroundColor: '#0a0a0a', borderColor: '#27272a', color: '#f4f4f5' };
+        if (previewMode === 'custom') {
+           return isPreviewLight 
+             ? { backgroundColor: `hsla(0, 0%, ${previewGrey}%, 0.7)`, borderColor: 'rgba(0,0,0,0.1)', color: '#18181b' }
+             : { backgroundColor: `hsla(0, 0%, ${previewGrey}%, 0.7)`, borderColor: 'rgba(255,255,255,0.1)', color: '#f4f4f5' };
+        }
+        if (appTheme === 'light') return { backgroundColor: 'rgba(255,255,255,0.7)', borderColor: 'rgba(0,0,0,0.1)', color: '#18181b' }; 
+        return { backgroundColor: 'rgba(16,16,19,0.7)', borderColor: 'rgba(255,255,255,0.1)', color: '#f4f4f5' };
       };
       
-      const autoBalanceStyle = canvasBg === 'white' 
-        ? "bg-indigo-100 hover:bg-indigo-200 text-indigo-700 border-indigo-200"
-        : "bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border-indigo-500/30";
+      const btnStyle = isPreviewLight
+        ? "bg-black/5 hover:bg-black/10 text-zinc-700 border-black/10"
+        : "bg-white/5 hover:bg-white/10 text-zinc-300 border-white/10";
         
-      const resetStyle = canvasBg === 'white'
-        ? "bg-white hover:bg-zinc-100 border-zinc-200 text-zinc-700"
-        : "bg-zinc-900 hover:bg-zinc-800 border-zinc-800 text-zinc-300";
+      const getPreviewBg = () => {
+         if (previewMode === 'custom') return `hsl(0, 0%, ${previewGrey}%)`;
+         return appTheme === 'dark' ? '#101013' : '#ffffff';
+      };
 
       return (
-        <div className="flex flex-col lg:flex-row h-screen bg-zinc-950 text-zinc-200 font-sans overflow-hidden selection:bg-blue-500/30">
-          
-          {/* LEFT PANEL: Controls */}
-          <div className="w-full lg:w-[400px] h-1/2 lg:h-full flex-shrink-0 border-r border-zinc-800 bg-zinc-900/50 flex flex-col overflow-y-auto z-20 custom-scrollbar">
-            <div className="p-6 pb-2">
-              <div className="flex items-center gap-3 text-white mb-6">
-                <Icons.Wand2 className="w-6 h-6 text-blue-400" />
-                <h1 className="text-xl font-bold tracking-tight">ChromaCraft</h1>
-              </div>
-              
-              {/* MASTER MODE SWITCH */}
-              <div className="flex bg-zinc-900 p-1 rounded-lg mb-4 border border-zinc-800 shadow-inner">
-                {['harmony', 'blend', 'multi'].map((m) => (
-                   <button 
-                     key={m}
-                     className={`flex-1 py-1.5 text-xs font-medium uppercase tracking-wider rounded-md transition-all ${appMode === m ? 'bg-zinc-700 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'}`}
-                     onClick={() => switchAppMode(m)}
-                   >
-                     {m}
-                   </button>
-                ))}
-              </div>
-
-              {/* MULTI-PALETTE TABS */}
-              {appMode === 'multi' && (
-                <div className="flex border-b border-zinc-800 mb-2 overflow-x-auto custom-scrollbar">
-                  {configs.map((c, i) => (
-                    <div key={c.id} className={`flex items-center pb-2 pt-2 border-b-2 transition-colors ${activeTab === i ? 'border-blue-500 text-blue-400' : 'border-transparent text-zinc-600 hover:text-zinc-400'} px-3`}>
-                      <button 
-                        className="text-xs font-bold uppercase tracking-wider flex items-center gap-2"
-                        onClick={() => setActiveTab(i)}
-                      >
-                        <Icons.Layers className="w-3 h-3" /> {c.id}
-                      </button>
-                      {configs.length > 1 && (
-                        <button onClick={(e) => handleRemovePalette(e, i)} className="ml-2 text-zinc-600 hover:text-red-400 opacity-50 hover:opacity-100 transition-colors">
-                          <Icons.X className="w-3 h-3" />
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                  {configs.length < 6 && (
-                    <button onClick={handleAddPalette} className="px-3 pb-2 pt-2 text-zinc-500 hover:text-zinc-300 transition-colors">
-                      <Icons.Plus className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-
-            <div className="p-6 pt-2 space-y-8 flex-1">
-              {/* Input Colors Section */}
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Base Inputs</h2>
-                  <div className="flex items-center gap-2">
-                    {activeConfig.inputs.length > 1 && (
-                      <button onClick={handleSwapInputs} className="p-1 text-zinc-500 hover:text-blue-400 transition-colors" title="Swap Inputs">
-                        <Icons.ArrowLeftRight className="w-4 h-4" />
-                      </button>
-                    )}
-                    {activeConfig.inputs.length < 5 && appMode !== 'harmony' && (
-                      <button onClick={handleAddInput} className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 transition-colors bg-blue-400/10 px-2 py-1 rounded">
-                        <Icons.Plus className="w-3 h-3" /> Add Input
-                      </button>
-                    )}
-                  </div>
+        <div className={`${appTheme} w-full h-full`}>
+          <div className="flex flex-col lg:flex-row h-screen bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-200 font-sans overflow-hidden selection:bg-blue-500/30">
+            
+            {/* LEFT PANEL: Controls */}
+            <div className="w-full lg:w-[400px] h-1/2 lg:h-full flex-shrink-0 border-r border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50 flex flex-col overflow-y-auto z-20 custom-scrollbar">
+              <div className="p-6 pb-2">
+                <div className="flex items-center gap-3 text-zinc-900 dark:text-white mb-6">
+                  <Icons.GlobeIcon className="w-8 h-8" />
+                  <h1 className="text-xl font-bold tracking-tight">Colour Worlds</h1>
                 </div>
                 
-                <div className="space-y-3">
-                  {activeConfig.inputs.map((hex, i) => (
-                    <div key={i} className="flex items-center gap-3 bg-zinc-900 border border-zinc-800 p-2 rounded-lg group">
-                      <div className="relative w-10 h-10 rounded shadow-inner overflow-hidden flex-shrink-0">
-                        <input 
-                          type="color" value={hex} onChange={(e) => updateInputColor(i, e.target.value)}
-                          className="absolute -top-2 -left-2 w-16 h-16 cursor-pointer"
-                        />
-                      </div>
-                      <div className="flex-1">
-                        <div className="text-xs text-zinc-500 mb-0.5">Input {i + 1}</div>
-                        <input 
-                          type="text" value={hex} onChange={(e) => updateInputColor(i, e.target.value)}
-                          className="bg-transparent text-sm font-mono text-zinc-300 w-full outline-none uppercase"
-                        />
-                      </div>
-                      {activeConfig.inputs.length > 1 && (
-                        <button onClick={() => handleRemoveInput(i)} className="p-2 text-zinc-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all">
-                          <Icons.Minus className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
+                {/* MASTER MODE SWITCH */}
+                <div className="flex bg-zinc-100 dark:bg-zinc-900 p-1 rounded-lg mb-4 border border-zinc-200 dark:border-zinc-800 shadow-inner">
+                  {['harmony', 'blend', 'multi'].map((m) => (
+                     <button 
+                       key={m}
+                       className={`flex-1 py-1.5 text-xs font-medium uppercase tracking-wider rounded-md transition-all ${appMode === m ? 'bg-white dark:bg-zinc-700 text-blue-600 dark:text-white shadow' : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'}`}
+                       onClick={() => switchAppMode(m)}
+                     >
+                       {m}
+                     </button>
                   ))}
                 </div>
 
-                {/* SPLINE EDITOR */}
-                {renderBezierEditor()}
-              </div>
-
-              {/* Configuration Section */}
-              <div className="space-y-6">
-                <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">System</h2>
-                
-                <div className="space-y-3">
-                  <label className="text-xs text-zinc-400 flex justify-between">
-                    <span>Output Count</span>
-                    <span className="text-zinc-200">{activeConfig.numColors} Colors</span>
-                  </label>
-                  <input 
-                    type="range" min="2" max="20" 
-                    value={activeConfig.numColors}
-                    onChange={(e) => updateConfig(activeTab, { numColors: parseInt(e.target.value) })}
-                    className="w-full accent-blue-500 h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer"
-                  />
-                </div>
-
+                {/* MULTI-PALETTE TABS */}
                 {appMode === 'multi' && (
-                  <div className="space-y-3">
-                    <label className="text-xs text-zinc-400 flex justify-between">
-                      <span>Palette Width</span>
-                      <span className="text-zinc-200">{(activeConfig.paletteRatio || (100/configs.length)).toFixed(1)}%</span>
-                    </label>
-                    <input 
-                      type="range" min="5" max="95" step="0.1"
-                      value={activeConfig.paletteRatio || (100/configs.length)}
-                      onChange={(e) => updatePaletteRatio(activeTab, parseFloat(e.target.value))}
-                      className="w-full accent-blue-500 h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer"
-                    />
+                  <div className="flex border-b border-zinc-200 dark:border-zinc-800 mb-2 overflow-x-auto custom-scrollbar">
+                    {configs.map((c, i) => (
+                      <div key={c.id} className={`flex items-center pb-2 pt-2 border-b-2 transition-colors ${activeTab === i ? 'border-blue-600 dark:border-blue-400 text-blue-600 dark:text-blue-400' : 'border-transparent text-zinc-500 dark:text-zinc-600 hover:text-zinc-800 dark:hover:text-zinc-400'} px-3`}>
+                        <button 
+                          className="text-xs font-bold uppercase tracking-wider flex items-center gap-2"
+                          onClick={() => setActiveTab(i)}
+                        >
+                          <Icons.Layers className="w-3 h-3" /> {c.id}
+                        </button>
+                        {configs.length > 1 && (
+                          <button onClick={(e) => handleRemovePalette(e, i)} className="ml-2 text-zinc-500 hover:text-red-500 dark:text-zinc-600 dark:hover:text-red-400 opacity-50 hover:opacity-100 transition-colors">
+                            <Icons.X className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    {configs.length < 6 && (
+                      <button onClick={handleAddPalette} className="px-3 pb-2 pt-2 text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300 transition-colors">
+                        <Icons.Plus className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 )}
-
-                {activeConfig.inputs.length === 1 && (
-                  <div className="space-y-3">
-                    <label className="text-xs text-zinc-400">Harmony Model</label>
-                    <select 
-                      value={activeConfig.mode} 
-                      onChange={(e) => updateConfig(activeTab, { mode: e.target.value })}
-                      className="w-full bg-zinc-900 border border-zinc-800 text-sm text-zinc-200 p-2.5 rounded-lg outline-none focus:border-blue-500 transition-colors"
-                    >
-                      <optgroup label="Standard">
-                        <option value="monochromatic">Monochromatic (Value Shift)</option>
-                        <option value="analogous">Analogous (Neighboring)</option>
-                        <option value="discordant">Discordant (Vibrating)</option>
-                      </optgroup>
-                      <optgroup label="Geometric">
-                        <option value="complementary">Complementary (Contrasting)</option>
-                        <option value="split-complementary">Split-Complementary (150°, 210°)</option>
-                        <option value="triadic">Triadic (120° Spread)</option>
-                        <option value="tetradic">Tetradic (Double Comp)</option>
-                        <option value="square">Square (90° Spread)</option>
-                      </optgroup>
-                      <optgroup label="Itten's Contrasts">
-                        <option value="itten-light-dark">Light-Dark (Value Extremes)</option>
-                        <option value="itten-cold-warm">Cold-Warm (Temperature)</option>
-                        <option value="itten-saturation">Saturation (Vivid vs. Dull)</option>
-                      </optgroup>
-                    </select>
-                  </div>
-                )}
-
-                <div className="flex items-center justify-between mt-4 p-3 bg-zinc-900/50 border border-zinc-800 rounded-lg">
-                  <div className="flex flex-col">
-                    <span className="text-sm text-zinc-300 font-medium">Perceptually Uniform</span>
-                    <span className="text-[10px] text-zinc-500">Oklab color space blending</span>
-                  </div>
-                  <div className="flex items-center gap-2 cursor-pointer" onClick={() => updateConfig(activeTab, { perceptuallyUniform: !activeConfig.perceptuallyUniform })}>
-                    <div className={`w-8 h-4 rounded-full p-0.5 transition-colors relative flex items-center ${activeConfig.perceptuallyUniform ? 'bg-emerald-500' : 'bg-zinc-700'}`}>
-                      <div className={`w-3 h-3 rounded-full bg-white transition-transform shadow-sm ${activeConfig.perceptuallyUniform ? 'translate-x-[16px]' : 'translate-x-0'}`} />
-                    </div>
-                  </div>
-                </div>
               </div>
 
-              {/* Global Adjustments Section */}
-              {activeConfig.inputs.length === 1 && (
-                <div className="space-y-6 pt-6 border-t border-zinc-800/50">
-                  <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">
-                    Global Adjustments <span className="text-[10px] lowercase normal-case">(Excl. Primary)</span>
-                  </h2>
+              <div className="p-6 pt-2 space-y-8 flex-1">
+                {/* Input Colors Section */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-500">Base Inputs</h2>
+                    <div className="flex items-center gap-2">
+                      {activeConfig.inputs.length > 1 && (
+                        <button onClick={handleSwapInputs} className="p-1 text-zinc-400 hover:text-blue-500 dark:text-zinc-500 dark:hover:text-blue-400 transition-colors" title="Swap Inputs">
+                          <Icons.ArrowLeftRight className="w-4 h-4" />
+                        </button>
+                      )}
+                      {activeConfig.inputs.length < 5 && appMode !== 'harmony' && (
+                        <button onClick={handleAddInput} className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-500 transition-colors bg-blue-100 dark:bg-blue-400/10 px-2 py-1 rounded">
+                          <Icons.Plus className="w-3 h-3" /> Add Input
+                        </button>
+                      )}
+                    </div>
+                  </div>
                   
                   <div className="space-y-3">
-                    <label className="text-xs text-zinc-400 flex justify-between">
-                      <span>Hue Shift</span>
-                      <span className="text-zinc-200">{activeConfig.globalAdjustments.h}°</span>
-                    </label>
-                    <input 
-                      type="range" min="-180" max="180" 
-                      value={activeConfig.globalAdjustments.h}
-                      onChange={(e) => updateConfig(activeTab, { globalAdjustments: { ...activeConfig.globalAdjustments, h: parseInt(e.target.value) } })}
-                      className="w-full accent-blue-500 h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer"
-                    />
+                    {activeConfig.inputs.map((hex, i) => (
+                      <div key={i} className="flex items-center gap-3 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2 rounded-lg group">
+                        <div className="relative w-10 h-10 rounded shadow-inner overflow-hidden flex-shrink-0 border border-black/10 dark:border-white/10">
+                          <input 
+                            type="color" value={hex} onChange={(e) => updateInputColor(i, e.target.value)}
+                            className="absolute -top-2 -left-2 w-16 h-16 cursor-pointer"
+                          />
+                        </div>
+                        <div className="flex-1">
+                          <div className="text-xs text-zinc-500 dark:text-zinc-500 mb-0.5">Input {i + 1}</div>
+                          <input 
+                            type="text" value={hex} onChange={(e) => updateInputColor(i, e.target.value)}
+                            className="bg-transparent text-sm font-mono text-zinc-800 dark:text-zinc-300 w-full outline-none uppercase"
+                          />
+                        </div>
+                        {activeConfig.inputs.length > 1 && (
+                          <button onClick={() => handleRemoveInput(i)} className="p-2 text-zinc-400 dark:text-zinc-600 hover:text-red-500 dark:hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all">
+                            <Icons.Minus className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
                   </div>
 
-                  <div className="space-y-3">
-                    <label className="text-xs text-zinc-400 flex justify-between">
-                      <span>Saturation</span>
-                      <span className="text-zinc-200">{activeConfig.globalAdjustments.s > 0 ? '+' : ''}{activeConfig.globalAdjustments.s}%</span>
-                    </label>
-                    <input 
-                      type="range" min="-100" max="100" 
-                      value={activeConfig.globalAdjustments.s}
-                      onChange={(e) => updateConfig(activeTab, { globalAdjustments: { ...activeConfig.globalAdjustments, s: parseInt(e.target.value) } })}
-                      className="w-full accent-blue-500 h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer"
-                    />
-                  </div>
-
-                  <div className="space-y-3">
-                    <label className="text-xs text-zinc-400 flex justify-between">
-                      <span>Brightness</span>
-                      <span className="text-zinc-200">{activeConfig.globalAdjustments.l > 0 ? '+' : ''}{activeConfig.globalAdjustments.l}%</span>
-                    </label>
-                    <input 
-                      type="range" min="-100" max="100" 
-                      value={activeConfig.globalAdjustments.l}
-                      onChange={(e) => updateConfig(activeTab, { globalAdjustments: { ...activeConfig.globalAdjustments, l: parseInt(e.target.value) } })}
-                      className="w-full accent-blue-500 h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer"
-                    />
-                  </div>
+                  {/* SPLINE EDITOR */}
+                  {renderBezierEditor()}
                 </div>
-              )}
 
-              {/* Visualizer */}
-              <div className="pt-6 border-t border-zinc-800/50">
-                <div className="flex items-center justify-between mb-2">
-                  <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Interactive Matrix</h2>
-                  <div className="flex items-center gap-2 cursor-pointer" onClick={() => updateConfig(activeTab, { harmonyLock: !activeConfig.harmonyLock })}>
-                    <span className="text-[10px] text-zinc-400 uppercase tracking-wide">Harmony Lock</span>
-                    <div className={`w-7 h-3.5 rounded-full p-0.5 transition-colors relative flex items-center ${activeConfig.harmonyLock ? 'bg-blue-500' : 'bg-zinc-700'}`}>
-                      <div className={`w-2.5 h-2.5 rounded-full bg-white transition-transform shadow-sm ${activeConfig.harmonyLock ? 'translate-x-[14px]' : 'translate-x-0'}`} />
+                {/* Configuration Section */}
+                <div className="space-y-6">
+                  <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">System</h2>
+                  
+                  <div className="space-y-3">
+                    <label className="text-xs text-zinc-500 dark:text-zinc-400 flex justify-between">
+                      <span>Output Count</span>
+                      <span className="text-zinc-800 dark:text-zinc-200">{activeConfig.numColors} Colors</span>
+                    </label>
+                    <input 
+                      type="range" min="2" max="20" 
+                      value={activeConfig.numColors}
+                      onChange={(e) => updateConfig(activeTab, { numColors: parseInt(e.target.value) })}
+                      className="w-full accent-blue-500 h-1 bg-zinc-200 dark:bg-zinc-800 rounded-lg appearance-none cursor-pointer"
+                    />
+                  </div>
+
+                  {appMode === 'multi' && (
+                    <div className="space-y-3">
+                      <label className="text-xs text-zinc-500 dark:text-zinc-400 flex justify-between">
+                        <span>Palette Width</span>
+                        <span className="text-zinc-800 dark:text-zinc-200">{(activeConfig.paletteRatio || (100/configs.length)).toFixed(1)}%</span>
+                      </label>
+                      <input 
+                        type="range" min="5" max="95" step="0.1"
+                        value={activeConfig.paletteRatio || (100/configs.length)}
+                        onChange={(e) => updatePaletteRatio(activeTab, parseFloat(e.target.value))}
+                        className="w-full accent-blue-500 h-1 bg-zinc-200 dark:bg-zinc-800 rounded-lg appearance-none cursor-pointer"
+                      />
+                    </div>
+                  )}
+
+                  {activeConfig.inputs.length === 1 && (
+                    <div className="space-y-3">
+                      <label className="text-xs text-zinc-500 dark:text-zinc-400">Harmony Model</label>
+                      <select 
+                        value={activeConfig.mode} 
+                        onChange={(e) => updateConfig(activeTab, { mode: e.target.value })}
+                        className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-sm text-zinc-800 dark:text-zinc-200 p-2.5 rounded-lg outline-none focus:border-blue-500 transition-colors"
+                      >
+                        <optgroup label="Standard">
+                          <option value="monochromatic">Monochromatic (Value Shift)</option>
+                          <option value="analogous">Analogous (Neighboring)</option>
+                          <option value="discordant">Discordant (Vibrating)</option>
+                        </optgroup>
+                        <optgroup label="Geometric">
+                          <option value="complementary">Complementary (Contrasting)</option>
+                          <option value="split-complementary">Split-Complementary (150°, 210°)</option>
+                          <option value="triadic">Triadic (120° Spread)</option>
+                          <option value="tetradic">Tetradic (Double Comp)</option>
+                          <option value="square">Square (90° Spread)</option>
+                        </optgroup>
+                        <optgroup label="Itten's Contrasts">
+                          <option value="itten-light-dark">Light-Dark (Value Extremes)</option>
+                          <option value="itten-cold-warm">Cold-Warm (Temperature)</option>
+                          <option value="itten-saturation">Saturation (Vivid vs. Dull)</option>
+                        </optgroup>
+                      </select>
+                    </div>
+                  )}
+
+                  {activeConfig.inputs.length === 1 && activeConfig.mode === 'discordant' && (
+                    <div className="space-y-3">
+                      <label className="text-xs text-zinc-500 dark:text-zinc-400 flex justify-between">
+                        <span>Discordance Enhancer</span>
+                        <span className="text-zinc-800 dark:text-zinc-200">{activeConfig.discordance || 50}%</span>
+                      </label>
+                      <input 
+                        type="range" min="0" max="100" 
+                        value={activeConfig.discordance !== undefined ? activeConfig.discordance : 50}
+                        onChange={(e) => updateConfig(activeTab, { discordance: parseInt(e.target.value) })}
+                        className="w-full accent-blue-500 h-1 bg-zinc-200 dark:bg-zinc-800 rounded-lg appearance-none cursor-pointer"
+                      />
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between mt-4 p-3 bg-white dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 rounded-lg">
+                    <div className="flex flex-col">
+                      <span className="text-sm text-zinc-800 dark:text-zinc-300 font-medium">Perceptually Uniform</span>
+                      <span className="text-[10px] text-zinc-500">Oklab color space blending</span>
+                    </div>
+                    <div className="flex items-center gap-2 cursor-pointer" onClick={() => updateConfig(activeTab, { perceptuallyUniform: !activeConfig.perceptuallyUniform })}>
+                      <div className={`w-8 h-4 rounded-full p-0.5 transition-colors relative flex items-center ${activeConfig.perceptuallyUniform ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-700'}`}>
+                        <div className={`w-3 h-3 rounded-full bg-white transition-transform shadow-sm ${activeConfig.perceptuallyUniform ? 'translate-x-[16px]' : 'translate-x-0'}`} />
+                      </div>
                     </div>
                   </div>
                 </div>
-                <p className="text-[10px] text-zinc-500 leading-tight mb-3">Drag nodes to manually tweak hues</p>
-                {renderColorWheel()}
-              </div>
-            </div>
-          </div>
 
-          {/* RIGHT PANEL: The Canvas */}
-          <div 
-            className="flex-1 flex flex-col h-1/2 lg:h-full relative overflow-hidden transition-colors duration-300"
-            style={{ backgroundColor: canvasBg === 'black' ? '#0a0a0a' : canvasBg === 'grey' ? '#71717a' : '#ffffff' }}
-          >
-            
-            {/* Dynamic Toolbar */}
-            <div 
-              className="h-16 flex items-center justify-between px-6 border-b z-10 flex-shrink-0 transition-colors duration-300"
-              style={getToolbarStyle()}
-            >
-              <div className="flex items-center gap-4">
-                 <button 
-                    onClick={handleAutoBalance}
-                    className={`flex items-center gap-2 text-sm px-4 py-2 rounded-lg transition-colors shadow-sm border ${autoBalanceStyle}`}
-                    title="Balance active palette ratios by visual weight"
-                  >
-                    <Icons.Wand2 className="w-4 h-4" />
-                    Auto-Balance
-                  </button>
-                 <button 
-                    onClick={handleReset}
-                    className={`flex items-center gap-2 text-sm px-4 py-2 rounded-lg transition-colors shadow-sm border ${resetStyle}`}
-                  >
-                    <Icons.RefreshCw className="w-4 h-4" />
-                    Reset Config
-                  </button>
-              </div>
-              
-              <div className="flex items-center">
-                {/* Background Toggle */}
-                <div className="flex items-center bg-black/10 p-1 rounded-lg border border-black/10 dark:border-white/10 mr-4 shadow-inner">
-                  {['white', 'grey', 'black'].map(bg => (
-                    <button
-                      key={bg}
-                      onClick={() => setCanvasBg(bg)}
-                      className={`w-5 h-5 rounded-md mx-0.5 transition-all shadow-sm border border-black/10 ${canvasBg === bg ? 'ring-2 ring-blue-500 scale-110 z-10' : 'opacity-60 hover:opacity-100 hover:scale-105'}`}
-                      style={{ backgroundColor: bg === 'black' ? '#0a0a0a' : bg === 'grey' ? '#71717a' : '#ffffff' }}
-                      title={`${bg} background`}
-                    />
-                  ))}
+                {/* Global Adjustments Section */}
+                {activeConfig.inputs.length === 1 && (
+                  <div className="space-y-6 pt-6 border-t border-zinc-200 dark:border-zinc-800/50">
+                    <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">
+                      Global Adjustments <span className="text-[10px] lowercase normal-case">(Excl. Primary)</span>
+                    </h2>
+                    
+                    <div className="space-y-3">
+                      <label className="text-xs text-zinc-500 dark:text-zinc-400 flex justify-between">
+                        <span>Hue Shift</span>
+                        <span className="text-zinc-800 dark:text-zinc-200">{activeConfig.globalAdjustments.h}°</span>
+                      </label>
+                      <input 
+                        type="range" min="-180" max="180" 
+                        value={activeConfig.globalAdjustments.h}
+                        onChange={(e) => updateConfig(activeTab, { globalAdjustments: { ...activeConfig.globalAdjustments, h: parseInt(e.target.value) } })}
+                        className="w-full accent-blue-500 h-1 bg-zinc-200 dark:bg-zinc-800 rounded-lg appearance-none cursor-pointer"
+                      />
+                    </div>
+
+                    <div className="space-y-3">
+                      <label className="text-xs text-zinc-500 dark:text-zinc-400 flex justify-between">
+                        <span>Saturation</span>
+                        <span className="text-zinc-800 dark:text-zinc-200">{activeConfig.globalAdjustments.s > 0 ? '+' : ''}{activeConfig.globalAdjustments.s}%</span>
+                      </label>
+                      <input 
+                        type="range" min="-100" max="100" 
+                        value={activeConfig.globalAdjustments.s}
+                        onChange={(e) => updateConfig(activeTab, { globalAdjustments: { ...activeConfig.globalAdjustments, s: parseInt(e.target.value) } })}
+                        className="w-full accent-blue-500 h-1 bg-zinc-200 dark:bg-zinc-800 rounded-lg appearance-none cursor-pointer"
+                      />
+                    </div>
+
+                    <div className="space-y-3">
+                      <label className="text-xs text-zinc-500 dark:text-zinc-400 flex justify-between">
+                        <span>Brightness</span>
+                        <span className="text-zinc-800 dark:text-zinc-200">{activeConfig.globalAdjustments.l > 0 ? '+' : ''}{activeConfig.globalAdjustments.l}%</span>
+                      </label>
+                      <input 
+                        type="range" min="-100" max="100" 
+                        value={activeConfig.globalAdjustments.l}
+                        onChange={(e) => updateConfig(activeTab, { globalAdjustments: { ...activeConfig.globalAdjustments, l: parseInt(e.target.value) } })}
+                        className="w-full accent-blue-500 h-1 bg-zinc-200 dark:bg-zinc-800 rounded-lg appearance-none cursor-pointer"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Visualizer */}
+                <div className="pt-6 border-t border-zinc-200 dark:border-zinc-800/50">
+                  <div className="flex items-center justify-between mb-2">
+                    <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">Interactive Matrix</h2>
+                    <div className="flex items-center gap-2 cursor-pointer" onClick={() => updateConfig(activeTab, { harmonyLock: !activeConfig.harmonyLock })}>
+                      <span className="text-[10px] text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">Harmony Lock</span>
+                      <div className={`w-7 h-3.5 rounded-full p-0.5 transition-colors relative flex items-center ${activeConfig.harmonyLock ? 'bg-blue-500' : 'bg-zinc-300 dark:bg-zinc-700'}`}>
+                        <div className={`w-2.5 h-2.5 rounded-full bg-white transition-transform shadow-sm ${activeConfig.harmonyLock ? 'translate-x-[14px]' : 'translate-x-0'}`} />
+                      </div>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-zinc-400 dark:text-zinc-500 leading-tight mb-3">Drag nodes to manually tweak hues</p>
+                  {renderColorWheel()}
                 </div>
-
-                <button 
-                  onClick={copySvg}
-                  className={`flex items-center gap-2 text-sm px-4 py-2 rounded-lg font-medium transition-all ${
-                    copied 
-                      ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30' 
-                      : 'bg-blue-600 text-white hover:bg-blue-500 shadow-lg shadow-blue-900/20'
-                  }`}
-                >
-                  {copied ? <Icons.Check className="w-4 h-4" /> : <Icons.Download className="w-4 h-4" />}
-                  {copied ? 'SVG Copied!' : 'Export SVG'}
-                </button>
               </div>
             </div>
 
-            {/* Stacked Canvas Area with Universal Margins */}
-            <div className="flex-1 flex w-full relative p-4 gap-4 flex-row">
-              {configs.map((config, cIdx) => {
-                 const titleColor = canvasBg === 'white' ? 'text-zinc-800' : 'text-zinc-400';
-                 const lineColor = canvasBg === 'white' ? 'bg-zinc-300' : 'bg-zinc-700';
-                 const capColor = canvasBg === 'white' ? 'bg-zinc-400' : 'bg-zinc-500';
+            {/* RIGHT PANEL: The Canvas */}
+            <div 
+              className="flex-1 flex flex-col h-1/2 lg:h-full relative overflow-hidden transition-colors duration-300"
+              style={{ backgroundColor: getPreviewBg() }}
+            >
+              
+              {/* Dynamic Toolbar */}
+              <div 
+                className="h-16 flex items-center justify-between px-6 border-b z-10 flex-shrink-0 transition-colors duration-300"
+                style={getToolbarStyle()}
+              >
+                <div className="flex items-center gap-4">
+                   <button 
+                      onClick={handleAutoBalance}
+                      className={`flex items-center gap-2 text-sm px-4 py-2 rounded-lg transition-colors border ${btnStyle}`}
+                      title="Balance active palette ratios by visual weight"
+                    >
+                      <Icons.Wand2 className="w-4 h-4" />
+                      Auto-Balance
+                    </button>
+                   <button 
+                      onClick={handleReset}
+                      className={`flex items-center gap-2 text-sm px-4 py-2 rounded-lg transition-colors border ${btnStyle}`}
+                    >
+                      <Icons.RefreshCw className="w-4 h-4" />
+                      Reset Config
+                    </button>
+                </div>
+                
+                <div className="flex items-center">
+                  
+                  {/* Theme & Custom Background Toggles */}
+                  <div className="flex items-center bg-black/5 dark:bg-black/30 p-1 rounded-lg border border-black/5 dark:border-white/10 mr-4 shadow-inner">
+                    
+                    <button
+                      onClick={() => { setAppTheme('light'); setPreviewMode('theme'); }}
+                      className={`w-7 h-7 flex items-center justify-center rounded-md mx-0.5 transition-all shadow-sm ${appTheme === 'light' && previewMode === 'theme' ? 'bg-white text-zinc-900 ring-1 ring-black/10 scale-110 z-10' : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200 hover:scale-105'}`}
+                      title="Light Theme"
+                    >
+                      <Icons.Sun className="w-4 h-4" />
+                    </button>
+                    
+                    <button
+                      onClick={() => { setAppTheme('dark'); setPreviewMode('theme'); }}
+                      className={`w-7 h-7 flex items-center justify-center rounded-md mx-0.5 transition-all shadow-sm ${appTheme === 'dark' && previewMode === 'theme' ? 'bg-zinc-800 text-white ring-1 ring-white/10 scale-110 z-10' : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200 hover:scale-105'}`}
+                      title="Dark Theme"
+                    >
+                      <Icons.Moon className="w-4 h-4" />
+                    </button>
 
-                 return (
-                   <div 
-                     key={config.id} 
-                     className={`flex flex-col relative flex-1 h-full`}
-                     style={appMode === 'multi' ? { width: `${config.paletteRatio || (100/configs.length)}%`, flex: 'none' } : {}}
-                   >
-                      {(appMode === 'multi' || true) && (
+                    <div className="w-px h-5 bg-zinc-300 dark:bg-zinc-700 mx-1.5"></div>
+
+                    <button
+                      onClick={() => setPreviewMode(previewMode === 'custom' ? 'theme' : 'custom')}
+                      className={`w-7 h-7 flex items-center justify-center rounded-md mx-0.5 transition-all shadow-sm ${previewMode === 'custom' ? 'bg-zinc-500 text-white ring-1 ring-zinc-600 scale-110 z-10' : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200 hover:scale-105'}`}
+                      title="Custom Preview Background"
+                    >
+                      <div className="w-4 h-4 rounded-full bg-gradient-to-r from-white to-black border border-current"></div>
+                    </button>
+                    
+                    {previewMode === 'custom' && (
+                      <input
+                        type="range" min="0" max="100"
+                        value={previewGrey}
+                        onChange={(e) => setPreviewGrey(parseInt(e.target.value))}
+                        className="w-20 ml-2 mr-1 accent-zinc-500 h-1 bg-zinc-300 dark:bg-zinc-700 rounded-lg appearance-none cursor-pointer"
+                      />
+                    )}
+                  </div>
+
+                  <button 
+                    onClick={copySvg}
+                    className={`flex items-center gap-2 text-sm px-4 py-2 rounded-lg font-medium transition-all ${
+                      copied 
+                        ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30' 
+                        : 'bg-blue-600 text-white hover:bg-blue-500 shadow-lg shadow-blue-900/20'
+                    }`}
+                  >
+                    {copied ? <Icons.Check className="w-4 h-4" /> : <Icons.Download className="w-4 h-4" />}
+                    {copied ? 'SVG Copied!' : 'Export SVG'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Stacked Canvas Area with Universal Margins */}
+              <div className="flex-1 flex w-full relative p-4 gap-4 flex-row">
+                {configs.map((config, cIdx) => {
+                   const titleColor = isPreviewLight ? 'text-zinc-800' : 'text-zinc-400';
+                   const lineColor = isPreviewLight ? 'bg-zinc-300' : 'bg-zinc-700';
+                   const capColor = isPreviewLight ? 'bg-zinc-400' : 'bg-zinc-500';
+
+                   return (
+                     <div 
+                       key={config.id} 
+                       className={`flex flex-col relative flex-1 h-full`}
+                       style={appMode === 'multi' ? { width: `${config.paletteRatio || (100/configs.length)}%`, flex: 'none' } : {}}
+                     >
                         <div className={`flex flex-col mb-3 px-1 flex-shrink-0 transition-opacity ${appMode === 'multi' ? 'opacity-100' : 'opacity-0 select-none'}`}>
                           <span className={`text-[10px] font-bold uppercase tracking-widest mb-1.5 text-center transition-colors ${titleColor}`}>
                             Palette {config.id}
@@ -1313,36 +1408,36 @@
                              <div className={`absolute right-[2px] -top-[2px] w-[1px] h-[5px] transition-colors ${capColor}`} />
                           </div>
                         </div>
-                      )}
 
-                      <div className={`flex-1 flex w-full relative group rounded-md overflow-hidden shadow-2xl border ${canvasBg === 'white' ? 'border-black/10' : 'border-white/5'}`}>
-                        {config.palette.map((color, colorIdx) => {
-                          if (!color) return null;
-                          return (
-                            <div 
-                              key={color.id}
-                              className="relative h-full flex flex-col items-center justify-end pb-8 transition-all duration-75 group/block"
-                              style={{ width: `${color.ratio || 0}%`, backgroundColor: color.hex }}
-                            >
+                        <div className={`flex-1 flex w-full relative group rounded-md overflow-hidden shadow-2xl border ${isPreviewLight ? 'border-black/10' : 'border-white/5'}`}>
+                          {config.palette.map((color, colorIdx) => {
+                            if (!color) return null;
+                            return (
                               <div 
-                                onClick={() => setActiveTune({ cIdx, colorIdx })}
-                                className={`absolute inset-0 z-10 cursor-pointer transition-colors ${activeTune.cIdx === cIdx && activeTune.colorIdx === colorIdx ? 'bg-white/20 ring-2 ring-inset ring-white' : ''}`}
-                                title="Click to fine-tune"
-                              />
-                              <div className="opacity-0 group-hover/block:opacity-100 transition-opacity absolute bottom-8 left-1/2 -translate-x-1/2 bg-zinc-950/80 backdrop-blur text-white px-3 py-2 rounded-xl border border-white/10 shadow-2xl flex flex-col items-center gap-1 z-20 pointer-events-none whitespace-nowrap">
-                                <span className="font-mono text-sm tracking-wider uppercase font-bold">{color.hex}</span>
-                                <span className="text-[10px] text-zinc-400 font-medium">{(color.ratio || 0).toFixed(1)}%</span>
+                                key={color.id}
+                                className="relative h-full flex flex-col items-center justify-end pb-8 transition-all duration-75 group/block"
+                                style={{ width: `${color.ratio || 0}%`, backgroundColor: color.hex }}
+                              >
+                                <div 
+                                  onClick={() => setActiveTune({ cIdx, colorIdx })}
+                                  className={`absolute inset-0 z-10 cursor-pointer transition-colors ${activeTune.cIdx === cIdx && activeTune.colorIdx === colorIdx ? 'bg-white/20 ring-2 ring-inset ring-white' : ''}`}
+                                  title="Click to fine-tune"
+                                />
+                                <div className="opacity-0 group-hover/block:opacity-100 transition-opacity absolute bottom-8 left-1/2 -translate-x-1/2 bg-white/90 text-zinc-900 dark:bg-zinc-950/80 dark:text-white px-3 py-2 rounded-xl border border-black/5 dark:border-white/10 shadow-2xl flex flex-col items-center gap-1 z-20 pointer-events-none whitespace-nowrap">
+                                  <span className="font-mono text-sm tracking-wider uppercase font-bold">{color.hex}</span>
+                                  <span className="text-[10px] font-medium opacity-75">{(color.ratio || 0).toFixed(1)}%</span>
+                                </div>
                               </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                   </div>
-                 )
-              })}
+                            );
+                          })}
+                        </div>
+                     </div>
+                   )
+                })}
+              </div>
+              
+              {renderFineTunePopup()}
             </div>
-            
-            {renderFineTunePopup()}
           </div>
         </div>
       );
