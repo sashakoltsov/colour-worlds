@@ -1540,19 +1540,19 @@
                        style={appMode === 'multi' ? { width: `${config.paletteRatio || (100/configs.length)}%`, flex: 'none' } : {}}
                      >
                         <div className={`flex flex-col mb-3 px-1 flex-shrink-0 transition-opacity ${appMode === 'multi' ? 'opacity-100' : 'opacity-0 select-none'}`}>
-                          <span className={`text-[10px] font-bold uppercase tracking-widest mb-1.5 text-center transition-colors ${titleColor}`}>
-                            Palette {config.id}
-                          </span>
-                          <div className={`w-full h-[1px] relative transition-colors ${lineColor}`}>
-                             <div className={`absolute left-[2px] -top-[2px] w-[1px] h-[5px] transition-colors ${capColor}`} />
-                             <div className={`absolute right-[2px] -top-[2px] w-[1px] h-[5px] transition-colors ${capColor}`} />
-                          </div>
+                        <span className={`text-[10px] font-bold uppercase tracking-widest mb-1.5 text-center transition-colors ${titleColor}`}>
+                          Palette {config.id}
+                        </span>
+                        <div className={`w-full h-[1px] relative transition-colors ${lineColor}`}>
+                           <div className={`absolute left-[2px] -top-[2px] w-[1px] h-[5px] transition-colors ${capColor}`} />
+                           <div className={`absolute right-[2px] -top-[2px] w-[1px] h-[5px] transition-colors ${capColor}`} />
                         </div>
+                      </div>
 
-                        <div className={`flex-1 flex w-full relative group rounded-md overflow-hidden shadow-2xl border ${isPreviewLight ? 'border-black/10' : 'border-white/5'}`}>
-                          {config.palette.map((color, colorIdx) => {
-                            if (!color) return null;
-                            const isFirst = colorIdx === 0;
+                      <div className={`flex-1 flex w-full relative group rounded-md shadow-2xl border ${isPreviewLight ? 'border-black/10' : 'border-white/5'}`}>
+                        {config.palette.map((color, colorIdx) => {
+                          if (!color) return null;
+                          const isFirst = colorIdx === 0;
                             const isLast = colorIdx === config.palette.length - 1;
                             return (
                               <div 
